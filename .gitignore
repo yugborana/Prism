@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv
+venv/
+ENV/
+env/
+ENV/local/
+ENV/local/bin/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+
+# Databases / Data / Logs
+*.log
+*.sqlite3
+*.db
+qdrant_data/
+postgres_data/
+redis_data/
+prometheus_data/
+monitoring/grafana/datasources/*.json
+
+# OS files
+.DS_Store
+Thumbs.db

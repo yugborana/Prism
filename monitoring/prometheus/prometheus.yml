@@ -1,0 +1,52 @@
+# Prism Prometheus Configuration
+# Scrapes the API, worker, Redis, PostgreSQL, and Qdrant
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: "prism-local"
+    environment: "development"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []  # Add Alertmanager in production
+
+rule_files: []
+
+scrape_configs:
+  # ── Prism API (FastAPI /api/metrics endpoint) ───────────────────────
+  - job_name: "prism-api"
+    static_configs:
+      - targets: ["prism-api:8000"]
+    metrics_path: "/api/metrics"
+    scrape_interval: 10s
+
+  # ── Prism Celery Worker (standalone prometheus_client server) ───────
+  # The worker emits all review pipeline, agent, and LLM metrics here.
+  - job_name: "prism-worker"
+    static_configs:
+      - targets: ["prism-worker:9092"]
+    scrape_interval: 10s
+
+  # ── Prometheus Self-Monitoring ──────────────────────────────────────
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ── Redis (via redis_exporter) ──────────────────────────────────────
+  - job_name: "redis"
+    static_configs:
+      - targets: ["prism-redis-exporter:9121"]
+
+  # ── PostgreSQL (via postgres_exporter) ──────────────────────────────
+  - job_name: "postgres"
+    static_configs:
+      - targets: ["prism-postgres-exporter:9187"]
+
+  # ── Qdrant ──────────────────────────────────────────────────────────
+  - job_name: "qdrant"
+    static_configs:
+      - targets: ["prism-qdrant:6333"]
+    metrics_path: "/metrics"

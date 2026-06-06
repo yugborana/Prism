@@ -1,0 +1,41 @@
+# ── Git ───────────────────────────────────────────────────
+.git/
+.github/
+.gitignore
+
+# ── Python caches ─────────────────────────────────────────
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# ── Environment files ─────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Infrastructure (not needed in app image) ──────────────
+infra/
+monitoring/
+.cursor/
+
+# ── IDE & OS files ────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# ── Docs ──────────────────────────────────────────────────
+*.md
+LICENSE
+
+# ── Temporary files ───────────────────────────────────────
+temp_repos/
+review_artifacts/

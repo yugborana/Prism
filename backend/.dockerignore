@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Prism Backend .dockerignore
+# Docker reads this file when the build context is backend/
+# (used by both docker-compose and CI/CD pipeline)
+# ─────────────────────────────────────────────────────────────────────────
+
+# ── Secrets — NEVER bake into the image ───────────────────
+.env
+.env.*
+!.env.example
+keys/
+
+# ── Python artifacts ──────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# ── Dev/IDE ───────────────────────────────────────────────
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+
+# ── Git ───────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── Temp data / volumes (local dev only) ──────────────────
+temp_repos/
+qdrant_data/
+postgres_data/
+redis_data/
+prometheus_data/
+
+# ── Docs / CI (not needed at runtime) ─────────────────────
+*.md
+.github/
+monitoring/
+
+# ── Docker Compose (not needed inside the image) ──────────
+docker-compose.yml
+docker-compose*.yml

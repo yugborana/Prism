@@ -1,0 +1,72 @@
+# Default values for Prism Helm chart
+
+replicaCount: 2
+
+image:
+  repository: ""  # Set by CI/CD
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false  # We use Cloudflare Tunnel instead
+
+resources:
+  api:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  worker:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+# ── Autoscaling ──────────────
+autoscaling:
+  api:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+  worker:
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilization: 80
+
+# ── Service Account
+serviceAccount:
+  roleArn: ""  # Set to your AWS IAM role ARN for IRSA
+
+redis:
+  enabled: true
+  url: "redis://prism-redis:6379/0"
+
+qdrant:
+  enabled: true
+  url: "http://prism-qdrant:6333"
+
+env:
+  ENVIRONMENT: production
+  LOG_LEVEL: info
+
+secrets:
+  # These should be set via --set or external secrets manager
+  geminiApiKey: ""
+  githubWebhookSecret: ""
+  githubAppPrivateKey: ""
+  # Monitoring integrations
+  grafanaServiceAccountToken: ""
+  grafanaUrl: ""
+  datadogApiKey: ""
+  datadogAppKey: ""
+  amplitudeApiKey: ""
+  amplitudeSecretKey: ""
