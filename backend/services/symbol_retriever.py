@@ -28,7 +28,7 @@ def _build_filter(conditions: list[dict[str, Any]]) -> Any:
     try:
         from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny
 
-        must = []
+        must: list[Any] = []
         for cond in conditions:
             key = cond["key"]
             if "value" in cond:
@@ -43,7 +43,7 @@ def _build_filter(conditions: list[dict[str, Any]]) -> Any:
 class SymbolRetriever:
     """Retrieves cross-file context from the ``repo_chunks`` Qdrant collection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._client = get_qdrant_client()
         self._llm_client: Any | None = None
 

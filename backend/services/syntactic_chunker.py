@@ -98,7 +98,7 @@ class SyntacticChunker:
     language grammars already installed (Python, JS, TS, Go, Rust).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._parsers: dict[str, SimpleASTParser] = {}
 
     def _get_parser(self, language: str) -> SimpleASTParser | None:

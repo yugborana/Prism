@@ -66,3 +66,7 @@ Thumbs.db
 .terraform/
 .terraform.lock.hcl
 
+# Caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/

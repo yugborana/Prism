@@ -214,8 +214,9 @@ class ReviewOrchestrator:
                     confidence=1.0,
                 )
 
+                import json
                 review_span.set_attribute("review.duration_ms", duration_ms)
-                review_span.set_attribute("review.dag_summary", summary)
+                review_span.set_attribute("review.dag_summary", json.dumps(summary))
 
                 logger.info(
                     "review_completed",
@@ -418,7 +419,7 @@ class ReviewOrchestrator:
         if schema is None:
             return report_dict
         try:
-            return schema.model_validate(report_dict)
+            return cast(Any, schema).model_validate(report_dict)
         except Exception:
             # If validation fails, return the raw dict as a last resort
             return report_dict

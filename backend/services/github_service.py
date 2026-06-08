@@ -90,9 +90,15 @@ class GitHubService:
 
                 self._private_key = await asyncio.to_thread(_read_file)
                 logger.info("github_private_key_loaded", source="file", path=key_path)
-                return self._private_key
             except FileNotFoundError:
                 logger.warning("github_private_key_file_not_found", path=key_path)
+
+        if not self._private_key:
+            raise ValueError(
+                "GitHub App private key not found. Set GITHUB_APP_PRIVATE_KEY "
+                "(env var with PEM content) or GITHUB_APP_PRIVATE_KEY_PATH (file path)."
+            )
+        return self._private_key
 
         raise ValueError(
             "GitHub App private key not found. Set GITHUB_APP_PRIVATE_KEY "

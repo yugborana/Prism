@@ -147,6 +147,7 @@ class LLMClient:
             if _embedding_model is None:
                 await asyncio.to_thread(_get_embedding_model)
             model = _embedding_model
+            assert model is not None, "Embedding model failed to load"
 
             batch_texts = [t for _, t in non_empty]
             # Single thread, single batched call — uses vectorized ops internally

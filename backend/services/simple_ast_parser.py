@@ -53,13 +53,12 @@ class SimpleASTParser:
 
     def parse_file(self, file_path: str) -> Tuple[Any, str]:
         with open(file_path, "rb") as f:
-            source_code = f.read()
+            source_code_bytes = f.read()
 
-        tree = self.parser.parse(source_code)
-        if isinstance(source_code, bytes):
-            source_code = source_code.decode("utf-8")
+        tree = self.parser.parse(source_code_bytes)
+        source_code_str = source_code_bytes.decode("utf-8") if isinstance(source_code_bytes, bytes) else source_code_bytes
 
-        return tree, source_code
+        return tree, source_code_str
 
     def extract_functions(self, tree, source_code: str) -> List[Dict[str, Any]]:
         functions = []

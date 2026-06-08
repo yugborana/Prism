@@ -121,6 +121,6 @@ class TaskGraph:
             counts[t.status] += 1
         return {
             "total": len(self.tasks),
-            **counts,
+            **{s.value: c for s, c in counts.items()},
             "progress": round((counts[TaskStatus.COMPLETED] / len(self.tasks)) * 100, 1) if self.tasks else 0,
         }

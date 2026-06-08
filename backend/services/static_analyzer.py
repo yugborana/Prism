@@ -137,10 +137,10 @@ class TreeSitterOWASPScanner:
     docstrings (unlike regex-based scanners).
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._parsers: dict[str, Any] = {}
 
-    def _get_parser(self, language: str):
+    def _get_parser(self, language: str) -> Any | None:
         """Lazy-init a tree-sitter parser for the given language."""
         if language in self._parsers:
             return self._parsers[language]
@@ -575,10 +575,10 @@ class StructuralAnalyzer:
     - Maximum nesting depth
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._parsers: dict[str, Any] = {}
 
-    def _get_parser(self, language: str):
+    def _get_parser(self, language: str) -> Any | None:
         if language in self._parsers:
             return self._parsers[language]
 

@@ -63,10 +63,10 @@ class ReviewRepository:
         result = await self._session.execute(select(ReviewRecord).where(ReviewRecord.review_id == review_id))
         record = result.scalar_one_or_none()
         if record:
-            record.status = status
-            record.findings_count = findings_count
-            record.duration_ms = duration_ms
-            record.completed_at = datetime.now(UTC)
+            record.status = status  # type: ignore
+            record.findings_count = findings_count  # type: ignore
+            record.duration_ms = duration_ms  # type: ignore
+            record.completed_at = datetime.now(UTC)  # type: ignore
             logger.debug("review_record_completed", review_id=review_id, status=status)
 
     async def get_reviews_by_repo(self, repo_name: str, limit: int = 20) -> list[ReviewRecord]:
@@ -148,4 +148,4 @@ class ReviewRepository:
             .where(ReviewRecord.repo_name == repo_name)
             .group_by(FindingRecord.severity)
         )
-        return dict(result.all())
+        return {row[0]: row[1] for row in result.all()}
