@@ -215,6 +215,7 @@ class ReviewOrchestrator:
                 )
 
                 import json
+
                 review_span.set_attribute("review.duration_ms", duration_ms)
                 review_span.set_attribute("review.dag_summary", json.dumps(summary))
 

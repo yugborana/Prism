@@ -56,7 +56,9 @@ class SimpleASTParser:
             source_code_bytes = f.read()
 
         tree = self.parser.parse(source_code_bytes)
-        source_code_str = source_code_bytes.decode("utf-8") if isinstance(source_code_bytes, bytes) else source_code_bytes
+        source_code_str = (
+            source_code_bytes.decode("utf-8") if isinstance(source_code_bytes, bytes) else source_code_bytes
+        )
 
         return tree, source_code_str
 
