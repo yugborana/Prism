@@ -37,6 +37,7 @@ class ReviewRecord(Base):
     Permanent record of every PR review.
     Adapted from Proximus `projects` table — one review = one "project".
     """
+
     __tablename__ = "reviews"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -45,7 +46,9 @@ class ReviewRecord(Base):
     pr_number = Column(Integer, nullable=False)
     pr_title = Column(Text, default="")
     status = Column(
-        String(20), nullable=False, default="pending",
+        String(20),
+        nullable=False,
+        default="pending",
         # pending → running → completed → failed
     )
     files_changed = Column(Integer, default=0)
@@ -74,6 +77,7 @@ class DecisionRecord_DB(Base):
     Immutable decision log — persisted version of in-memory DecisionLog.
     Adapted from Proximus `tasks` table — each decision = one task record.
     """
+
     __tablename__ = "decisions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -99,6 +103,7 @@ class FindingRecord(Base):
     Individual code issue found by an agent.
     Persists the output of Security/Quality/Performance agents.
     """
+
     __tablename__ = "findings"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

@@ -120,9 +120,7 @@ class ReasoningChain:
                     variable=str(e),
                 )
                 # Fill missing variable with a placeholder
-                prompt = step.prompt_template.format_map(
-                    _DefaultDict(context)
-                )
+                prompt = step.prompt_template.format_map(_DefaultDict(context))
 
             # Call the LLM
             raw = await call_llm(
@@ -138,11 +136,7 @@ class ReasoningChain:
                 parsed = {"raw_text": raw}
 
             # Store output for downstream steps
-            context[f"{step.name}_output"] = (
-                json.dumps(parsed, indent=2)
-                if isinstance(parsed, dict)
-                else str(parsed)
-            )
+            context[f"{step.name}_output"] = json.dumps(parsed, indent=2) if isinstance(parsed, dict) else str(parsed)
 
             # Extract specific keys if configured
             if step.extract_keys and isinstance(parsed, dict):
@@ -158,9 +152,7 @@ class ReasoningChain:
 
         # Validate final output against schema
         if self.output_schema is not None:
-            final_output = await self._validate_with_retry(
-                call_llm, final_output
-            )
+            final_output = await self._validate_with_retry(call_llm, final_output)
 
         return final_output
 

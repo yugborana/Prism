@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 
 GITHUB_API = "https://api.github.com"
 
+
 class CommentService:
     """Posts structured review results to GitHub PRs."""
 
@@ -43,6 +44,7 @@ class CommentService:
             if self._installation_id:
                 try:
                     from services.github_service import GitHubService
+
                     gh = GitHubService(installation_id=self._installation_id)
                     token = await gh._get_installation_token()
                 except Exception as e:

@@ -39,13 +39,15 @@ logger = get_logger(__name__)
 
 # ── Diff Parser ─────────────────────────────────────────────────────────────
 
+
 @dataclass
 class DiffFile:
     """Represents the added lines from a single file in a unified diff."""
+
     file_path: str
-    added_lines: list[str]       # Only the `+` lines (content, no prefix)
+    added_lines: list[str]  # Only the `+` lines (content, no prefix)
     added_line_numbers: list[int]  # Original line numbers in the new file
-    source: str = ""              # Reconstructed source from + lines
+    source: str = ""  # Reconstructed source from + lines
 
 
 def parse_diff_added_lines(diff_text: str) -> list[DiffFile]:
@@ -111,19 +113,22 @@ def parse_diff_added_lines(diff_text: str) -> list[DiffFile]:
 
 # ── OWASP Pattern Definitions ───────────────────────────────────────────────
 
+
 @dataclass
 class StaticFinding:
     """A single anti-pattern finding from static analysis."""
+
     rule_id: str
-    category: str      # OWASP category or structural
-    severity: str      # CRITICAL, HIGH, MEDIUM, LOW
+    category: str  # OWASP category or structural
+    severity: str  # CRITICAL, HIGH, MEDIUM, LOW
     file_path: str
-    line: int          # 1-indexed line in the NEW file
+    line: int  # 1-indexed line in the NEW file
     message: str
     matched_code: str  # The exact code snippet that triggered the finding
 
 
 # ── Tree-Sitter OWASP Scanner ───────────────────────────────────────────────
+
 
 class TreeSitterOWASPScanner:
     """Scans source code for OWASP anti-patterns using tree-sitter AST walks.
@@ -206,7 +211,7 @@ class TreeSitterOWASPScanner:
 
     def _node_text(self, node: Any, source: str) -> str:
         """Extract the text of an AST node."""
-        return source[node.start_byte:node.end_byte]
+        return source[node.start_byte : node.end_byte]
 
     # ── Python Patterns ──────────────────────────────────────────────────
 
@@ -221,29 +226,33 @@ class TreeSitterOWASPScanner:
                 if any(kw in upper for kw in ("SELECT ", "INSERT ", "UPDATE ", "DELETE ", "DROP ")):
                     parent = node.parent
                     # f-string with SQL
-                    if node.type == "string" and "{" in text and text.startswith(("f\"", "f'", 'f"', "f'")):
-                        findings.append(StaticFinding(
-                            rule_id="python-sqli-fstring",
-                            category="A03:2021-Injection",
-                            severity="CRITICAL",
-                            file_path=file_path,
-                            line=self._real_line(node.start_point[0], line_map),
-                            message="SQL query built with f-string interpolation — use parameterized queries",
-                            matched_code=text[:120],
-                        ))
-                    # String concatenation with SQL
-                    elif parent and parent.type == "binary_operator":
-                        op_text = self._node_text(parent, source)
-                        if "+" in op_text:
-                            findings.append(StaticFinding(
-                                rule_id="python-sqli-concat",
+                    if node.type == "string" and "{" in text and text.startswith(('f"', "f'", 'f"', "f'")):
+                        findings.append(
+                            StaticFinding(
+                                rule_id="python-sqli-fstring",
                                 category="A03:2021-Injection",
                                 severity="CRITICAL",
                                 file_path=file_path,
                                 line=self._real_line(node.start_point[0], line_map),
-                                message="SQL query built via string concatenation — use parameterized queries",
-                                matched_code=op_text[:120],
-                            ))
+                                message="SQL query built with f-string interpolation — use parameterized queries",
+                                matched_code=text[:120],
+                            )
+                        )
+                    # String concatenation with SQL
+                    elif parent and parent.type == "binary_operator":
+                        op_text = self._node_text(parent, source)
+                        if "+" in op_text:
+                            findings.append(
+                                StaticFinding(
+                                    rule_id="python-sqli-concat",
+                                    category="A03:2021-Injection",
+                                    severity="CRITICAL",
+                                    file_path=file_path,
+                                    line=self._real_line(node.start_point[0], line_map),
+                                    message="SQL query built via string concatenation — use parameterized queries",
+                                    matched_code=op_text[:120],
+                                )
+                            )
 
             # ── Hardcoded Secrets ─────────────────────────────────────────
             if node.type == "assignment":
@@ -252,22 +261,32 @@ class TreeSitterOWASPScanner:
                 if left and right and right.type == "string":
                     var_name = self._node_text(left, source).lower()
                     value = self._node_text(right, source)
-                    secret_keywords = ("password", "secret", "api_key", "apikey",
-                                       "private_key", "token", "auth_token",
-                                       "aws_secret", "database_url")
+                    secret_keywords = (
+                        "password",
+                        "secret",
+                        "api_key",
+                        "apikey",
+                        "private_key",
+                        "token",
+                        "auth_token",
+                        "aws_secret",
+                        "database_url",
+                    )
                     if any(kw in var_name for kw in secret_keywords):
                         # Ignore empty strings and obvious placeholders
                         stripped = value.strip("\"'")
                         if stripped and stripped not in ("", "changeme", "xxx", "your-key-here"):
-                            findings.append(StaticFinding(
-                                rule_id="python-hardcoded-secret",
-                                category="A07:2021-Auth-Failures",
-                                severity="HIGH",
-                                file_path=file_path,
-                                line=self._real_line(node.start_point[0], line_map),
-                                message=f"Potential hardcoded secret in variable '{self._node_text(left, source)}'",
-                                matched_code=self._node_text(node, source)[:120],
-                            ))
+                            findings.append(
+                                StaticFinding(
+                                    rule_id="python-hardcoded-secret",
+                                    category="A07:2021-Auth-Failures",
+                                    severity="HIGH",
+                                    file_path=file_path,
+                                    line=self._real_line(node.start_point[0], line_map),
+                                    message=f"Potential hardcoded secret in variable '{self._node_text(left, source)}'",
+                                    matched_code=self._node_text(node, source)[:120],
+                                )
+                            )
 
             # ── Unsafe Deserialization ────────────────────────────────────
             if node.type == "call":
@@ -277,66 +296,76 @@ class TreeSitterOWASPScanner:
 
                     # pickle.loads, pickle.load
                     if func_text in ("pickle.loads", "pickle.load"):
-                        findings.append(StaticFinding(
-                            rule_id="python-unsafe-pickle",
-                            category="A08:2021-Integrity-Failures",
-                            severity="CRITICAL",
-                            file_path=file_path,
-                            line=self._real_line(node.start_point[0], line_map),
-                            message="pickle.loads() deserializes arbitrary objects — can lead to remote code execution",
-                            matched_code=self._node_text(node, source)[:120],
-                        ))
+                        findings.append(
+                            StaticFinding(
+                                rule_id="python-unsafe-pickle",
+                                category="A08:2021-Integrity-Failures",
+                                severity="CRITICAL",
+                                file_path=file_path,
+                                line=self._real_line(node.start_point[0], line_map),
+                                message="pickle.loads() deserializes arbitrary objects — can lead to remote code execution",
+                                matched_code=self._node_text(node, source)[:120],
+                            )
+                        )
 
                     # yaml.load without SafeLoader
                     if func_text in ("yaml.load", "yaml.unsafe_load"):
                         call_text = self._node_text(node, source)
                         if "SafeLoader" not in call_text and "safe_load" not in call_text:
-                            findings.append(StaticFinding(
-                                rule_id="python-unsafe-yaml",
-                                category="A08:2021-Integrity-Failures",
-                                severity="HIGH",
-                                file_path=file_path,
-                                line=self._real_line(node.start_point[0], line_map),
-                                message="yaml.load() without SafeLoader can execute arbitrary code",
-                                matched_code=call_text[:120],
-                            ))
+                            findings.append(
+                                StaticFinding(
+                                    rule_id="python-unsafe-yaml",
+                                    category="A08:2021-Integrity-Failures",
+                                    severity="HIGH",
+                                    file_path=file_path,
+                                    line=self._real_line(node.start_point[0], line_map),
+                                    message="yaml.load() without SafeLoader can execute arbitrary code",
+                                    matched_code=call_text[:120],
+                                )
+                            )
 
                     # eval() / exec()
                     if func_text in ("eval", "exec"):
-                        findings.append(StaticFinding(
-                            rule_id="python-eval-exec",
-                            category="A03:2021-Injection",
-                            severity="CRITICAL",
-                            file_path=file_path,
-                            line=self._real_line(node.start_point[0], line_map),
-                            message=f"{func_text}() executes arbitrary code — avoid with untrusted input",
-                            matched_code=self._node_text(node, source)[:120],
-                        ))
+                        findings.append(
+                            StaticFinding(
+                                rule_id="python-eval-exec",
+                                category="A03:2021-Injection",
+                                severity="CRITICAL",
+                                file_path=file_path,
+                                line=self._real_line(node.start_point[0], line_map),
+                                message=f"{func_text}() executes arbitrary code — avoid with untrusted input",
+                                matched_code=self._node_text(node, source)[:120],
+                            )
+                        )
 
                     # ── Command Injection ─────────────────────────────────
                     if func_text in ("os.system", "os.popen"):
-                        findings.append(StaticFinding(
-                            rule_id="python-cmd-injection",
-                            category="A03:2021-Injection",
-                            severity="CRITICAL",
-                            file_path=file_path,
-                            line=self._real_line(node.start_point[0], line_map),
-                            message=f"{func_text}() is vulnerable to command injection — use subprocess with shell=False",
-                            matched_code=self._node_text(node, source)[:120],
-                        ))
+                        findings.append(
+                            StaticFinding(
+                                rule_id="python-cmd-injection",
+                                category="A03:2021-Injection",
+                                severity="CRITICAL",
+                                file_path=file_path,
+                                line=self._real_line(node.start_point[0], line_map),
+                                message=f"{func_text}() is vulnerable to command injection — use subprocess with shell=False",
+                                matched_code=self._node_text(node, source)[:120],
+                            )
+                        )
 
                     if func_text in ("subprocess.call", "subprocess.run", "subprocess.Popen"):
                         call_text = self._node_text(node, source)
                         if "shell=True" in call_text:
-                            findings.append(StaticFinding(
-                                rule_id="python-subprocess-shell",
-                                category="A03:2021-Injection",
-                                severity="HIGH",
-                                file_path=file_path,
-                                line=self._real_line(node.start_point[0], line_map),
-                                message=f"{func_text}() with shell=True is vulnerable to command injection",
-                                matched_code=call_text[:120],
-                            ))
+                            findings.append(
+                                StaticFinding(
+                                    rule_id="python-subprocess-shell",
+                                    category="A03:2021-Injection",
+                                    severity="HIGH",
+                                    file_path=file_path,
+                                    line=self._real_line(node.start_point[0], line_map),
+                                    message=f"{func_text}() with shell=True is vulnerable to command injection",
+                                    matched_code=call_text[:120],
+                                )
+                            )
 
             for child in node.children:
                 walk(child)
@@ -355,15 +384,17 @@ class TreeSitterOWASPScanner:
                     # Check we haven't already reported this line
                     real_ln = self._real_line(i, line_map)
                     if not any(f.line == real_ln and f.rule_id == "python-sqli-fstring" for f in findings):
-                        findings.append(StaticFinding(
-                            rule_id="python-sqli-fstring",
-                            category="A03:2021-Injection",
-                            severity="CRITICAL",
-                            file_path=file_path,
-                            line=real_ln,
-                            message="SQL query built with f-string interpolation — use parameterized queries",
-                            matched_code=stripped[:120],
-                        ))
+                        findings.append(
+                            StaticFinding(
+                                rule_id="python-sqli-fstring",
+                                category="A03:2021-Injection",
+                                severity="CRITICAL",
+                                file_path=file_path,
+                                line=real_ln,
+                                message="SQL query built with f-string interpolation — use parameterized queries",
+                                matched_code=stripped[:120],
+                            )
+                        )
 
         return findings
 
@@ -379,29 +410,33 @@ class TreeSitterOWASPScanner:
                 if left:
                     left_text = self._node_text(left, source)
                     if "innerHTML" in left_text:
-                        findings.append(StaticFinding(
-                            rule_id="js-xss-innerhtml",
-                            category="A03:2021-Injection",
-                            severity="HIGH",
-                            file_path=file_path,
-                            line=self._real_line(node.start_point[0], line_map),
-                            message="Direct innerHTML assignment can lead to XSS — use textContent or a sanitizer",
-                            matched_code=self._node_text(node, source)[:120],
-                        ))
+                        findings.append(
+                            StaticFinding(
+                                rule_id="js-xss-innerhtml",
+                                category="A03:2021-Injection",
+                                severity="HIGH",
+                                file_path=file_path,
+                                line=self._real_line(node.start_point[0], line_map),
+                                message="Direct innerHTML assignment can lead to XSS — use textContent or a sanitizer",
+                                matched_code=self._node_text(node, source)[:120],
+                            )
+                        )
 
             # ── XSS: dangerouslySetInnerHTML (React) ──────────────────────
             if node.type == "jsx_attribute":
                 attr_text = self._node_text(node, source)
                 if "dangerouslySetInnerHTML" in attr_text:
-                    findings.append(StaticFinding(
-                        rule_id="js-xss-dangerous-html",
-                        category="A03:2021-Injection",
-                        severity="HIGH",
-                        file_path=file_path,
-                        line=self._real_line(node.start_point[0], line_map),
-                        message="dangerouslySetInnerHTML bypasses React's XSS protection — ensure input is sanitized",
-                        matched_code=attr_text[:120],
-                    ))
+                    findings.append(
+                        StaticFinding(
+                            rule_id="js-xss-dangerous-html",
+                            category="A03:2021-Injection",
+                            severity="HIGH",
+                            file_path=file_path,
+                            line=self._real_line(node.start_point[0], line_map),
+                            message="dangerouslySetInnerHTML bypasses React's XSS protection — ensure input is sanitized",
+                            matched_code=attr_text[:120],
+                        )
+                    )
 
             # ── XSS: document.write ───────────────────────────────────────
             if node.type == "call_expression":
@@ -410,27 +445,31 @@ class TreeSitterOWASPScanner:
                     func_text = self._node_text(func_node, source)
 
                     if func_text == "document.write":
-                        findings.append(StaticFinding(
-                            rule_id="js-xss-document-write",
-                            category="A03:2021-Injection",
-                            severity="HIGH",
-                            file_path=file_path,
-                            line=self._real_line(node.start_point[0], line_map),
-                            message="document.write() can introduce XSS — use DOM APIs instead",
-                            matched_code=self._node_text(node, source)[:120],
-                        ))
+                        findings.append(
+                            StaticFinding(
+                                rule_id="js-xss-document-write",
+                                category="A03:2021-Injection",
+                                severity="HIGH",
+                                file_path=file_path,
+                                line=self._real_line(node.start_point[0], line_map),
+                                message="document.write() can introduce XSS — use DOM APIs instead",
+                                matched_code=self._node_text(node, source)[:120],
+                            )
+                        )
 
                     # ── eval() ────────────────────────────────────────────
                     if func_text == "eval":
-                        findings.append(StaticFinding(
-                            rule_id="js-eval",
-                            category="A03:2021-Injection",
-                            severity="CRITICAL",
-                            file_path=file_path,
-                            line=self._real_line(node.start_point[0], line_map),
-                            message="eval() executes arbitrary JavaScript — avoid with untrusted input",
-                            matched_code=self._node_text(node, source)[:120],
-                        ))
+                        findings.append(
+                            StaticFinding(
+                                rule_id="js-eval",
+                                category="A03:2021-Injection",
+                                severity="CRITICAL",
+                                file_path=file_path,
+                                line=self._real_line(node.start_point[0], line_map),
+                                message="eval() executes arbitrary JavaScript — avoid with untrusted input",
+                                matched_code=self._node_text(node, source)[:120],
+                            )
+                        )
 
             # ── Hardcoded Secrets (variable declarations) ─────────────────
             if node.type == "variable_declarator":
@@ -438,20 +477,21 @@ class TreeSitterOWASPScanner:
                 value_node = node.child_by_field_name("value")
                 if name_node and value_node and value_node.type == "string":
                     var_name = self._node_text(name_node, source).lower()
-                    secret_keywords = ("password", "secret", "apikey", "api_key",
-                                       "private_key", "token", "auth_token")
+                    secret_keywords = ("password", "secret", "apikey", "api_key", "private_key", "token", "auth_token")
                     if any(kw in var_name for kw in secret_keywords):
                         val = self._node_text(value_node, source).strip("\"'`")
                         if val and val not in ("", "changeme", "xxx"):
-                            findings.append(StaticFinding(
-                                rule_id="js-hardcoded-secret",
-                                category="A07:2021-Auth-Failures",
-                                severity="HIGH",
-                                file_path=file_path,
-                                line=self._real_line(node.start_point[0], line_map),
-                                message=f"Potential hardcoded secret in '{self._node_text(name_node, source)}'",
-                                matched_code=self._node_text(node, source)[:120],
-                            ))
+                            findings.append(
+                                StaticFinding(
+                                    rule_id="js-hardcoded-secret",
+                                    category="A07:2021-Auth-Failures",
+                                    severity="HIGH",
+                                    file_path=file_path,
+                                    line=self._real_line(node.start_point[0], line_map),
+                                    message=f"Potential hardcoded secret in '{self._node_text(name_node, source)}'",
+                                    matched_code=self._node_text(node, source)[:120],
+                                )
+                            )
 
             for child in node.children:
                 walk(child)
@@ -475,27 +515,31 @@ class TreeSitterOWASPScanner:
                     if func_text == "fmt.Sprintf":
                         upper = call_text.upper()
                         if any(kw in upper for kw in ("SELECT ", "INSERT ", "UPDATE ", "DELETE ")):
-                            findings.append(StaticFinding(
-                                rule_id="go-sqli-sprintf",
-                                category="A03:2021-Injection",
-                                severity="CRITICAL",
-                                file_path=file_path,
-                                line=self._real_line(node.start_point[0], line_map),
-                                message="SQL query built with fmt.Sprintf — use parameterized queries",
-                                matched_code=call_text[:120],
-                            ))
+                            findings.append(
+                                StaticFinding(
+                                    rule_id="go-sqli-sprintf",
+                                    category="A03:2021-Injection",
+                                    severity="CRITICAL",
+                                    file_path=file_path,
+                                    line=self._real_line(node.start_point[0], line_map),
+                                    message="SQL query built with fmt.Sprintf — use parameterized queries",
+                                    matched_code=call_text[:120],
+                                )
+                            )
 
                     # exec.Command without proper sanitization
                     if func_text in ("exec.Command", "exec.CommandContext"):
-                        findings.append(StaticFinding(
-                            rule_id="go-cmd-injection",
-                            category="A03:2021-Injection",
-                            severity="HIGH",
-                            file_path=file_path,
-                            line=self._real_line(node.start_point[0], line_map),
-                            message=f"{func_text}() — ensure command arguments are properly validated",
-                            matched_code=call_text[:120],
-                        ))
+                        findings.append(
+                            StaticFinding(
+                                rule_id="go-cmd-injection",
+                                category="A03:2021-Injection",
+                                severity="HIGH",
+                                file_path=file_path,
+                                line=self._real_line(node.start_point[0], line_map),
+                                message=f"{func_text}() — ensure command arguments are properly validated",
+                                matched_code=call_text[:120],
+                            )
+                        )
 
             for child in node.children:
                 walk(child)
@@ -506,17 +550,19 @@ class TreeSitterOWASPScanner:
 
 # ── Structural Analyzer ─────────────────────────────────────────────────────
 
+
 @dataclass
 class FunctionInfo:
     """Structural metadata for a function extracted by tree-sitter."""
+
     name: str
     file_path: str
-    line: int             # Real line number in new file
+    line: int  # Real line number in new file
     end_line: int
     params: list[str]
-    complexity: int       # Cyclomatic complexity
-    calls: list[str]      # Functions called from this function
-    nesting_depth: int    # Maximum nesting depth
+    complexity: int  # Cyclomatic complexity
+    calls: list[str]  # Functions called from this function
+    nesting_depth: int  # Maximum nesting depth
 
 
 class StructuralAnalyzer:
@@ -595,13 +641,13 @@ class StructuralAnalyzer:
         if not name_node:
             return None
 
-        name = source[name_node.start_byte:name_node.end_byte]
+        name = source[name_node.start_byte : name_node.end_byte]
 
         # Parameters
         params_node = node.child_by_field_name("parameters")
         params: list[str] = []
         if params_node:
-            params_text = source[params_node.start_byte:params_node.end_byte]
+            params_text = source[params_node.start_byte : params_node.end_byte]
             # Simple split — good enough for structural overview
             params = [p.strip() for p in params_text.strip("()").split(",") if p.strip()]
 
@@ -632,12 +678,18 @@ class StructuralAnalyzer:
     def _compute_complexity(self, node: Any, language: str, source: str) -> int:
         """Cyclomatic complexity: 1 + count of branching nodes."""
         branch_types = {
-            "if_statement", "elif_clause", "else_clause",
-            "for_statement", "for_in_statement",
+            "if_statement",
+            "elif_clause",
+            "else_clause",
+            "for_statement",
+            "for_in_statement",
             "while_statement",
-            "try_statement", "except_clause",
-            "case_clause", "match_statement",
-            "conditional_expression", "ternary_expression",
+            "try_statement",
+            "except_clause",
+            "case_clause",
+            "match_statement",
+            "conditional_expression",
+            "ternary_expression",
             "boolean_operator",  # Python: `and` / `or`
             "binary_expression",  # JS/Go: `&&` / `||`
         }
@@ -650,7 +702,7 @@ class StructuralAnalyzer:
                 if n.type == "binary_expression":
                     op_node = n.child_by_field_name("operator")
                     if op_node:
-                        op = source[op_node.start_byte:op_node.end_byte]
+                        op = source[op_node.start_byte : op_node.end_byte]
                         if op in ("&&", "||"):
                             count += 1
                 else:
@@ -670,7 +722,7 @@ class StructuralAnalyzer:
             if n.type in call_types:
                 func_node = n.child_by_field_name("function")
                 if func_node:
-                    name = source[func_node.start_byte:func_node.end_byte]
+                    name = source[func_node.start_byte : func_node.end_byte]
                     # Simplify: "self.method" → "method", "obj.func" → "func"
                     clean = name.rsplit(".", 1)[-1].strip()
                     if clean and clean.replace("_", "").isalnum():
@@ -684,8 +736,12 @@ class StructuralAnalyzer:
     def _compute_nesting_depth(self, node: Any, language: str) -> int:
         """Compute maximum nesting depth within a function."""
         nesting_types = {
-            "if_statement", "for_statement", "for_in_statement",
-            "while_statement", "try_statement", "with_statement",
+            "if_statement",
+            "for_statement",
+            "for_in_statement",
+            "while_statement",
+            "try_statement",
+            "with_statement",
         }
 
         max_depth = 0
@@ -715,6 +771,7 @@ class StructuralAnalyzer:
 
 
 # ── Main Facade ──────────────────────────────────────────────────────────────
+
 
 class StaticAnalyzer:
     """Facade that runs both OWASP pattern scanning and structural analysis
@@ -771,24 +828,22 @@ class StaticAnalyzer:
                 continue
 
             # OWASP scan
-            owasp_findings = self._owasp_scanner.scan(
-                df.file_path, df.source, df.added_line_numbers
-            )
+            owasp_findings = self._owasp_scanner.scan(df.file_path, df.source, df.added_line_numbers)
             for f in owasp_findings:
-                all_findings.append({
-                    "rule_id": f.rule_id,
-                    "category": f.category,
-                    "severity": f.severity,
-                    "file": f.file_path,
-                    "line": f.line,
-                    "message": f.message,
-                    "matched_code": f.matched_code,
-                })
+                all_findings.append(
+                    {
+                        "rule_id": f.rule_id,
+                        "category": f.category,
+                        "severity": f.severity,
+                        "file": f.file_path,
+                        "line": f.line,
+                        "message": f.message,
+                        "matched_code": f.matched_code,
+                    }
+                )
 
             # Structural analysis
-            functions = self._structural_analyzer.analyze(
-                df.file_path, df.source, df.added_line_numbers
-            )
+            functions = self._structural_analyzer.analyze(df.file_path, df.source, df.added_line_numbers)
             for func in functions:
                 func_dict = {
                     "name": func.name,
@@ -806,12 +861,14 @@ class StaticAnalyzer:
                     max_complexity = func.complexity
 
                 if func.nesting_depth > 4:
-                    deeply_nested.append({
-                        "file": func.file_path,
-                        "function": func.name,
-                        "line": func.line,
-                        "depth": func.nesting_depth,
-                    })
+                    deeply_nested.append(
+                        {
+                            "file": func.file_path,
+                            "function": func.name,
+                            "line": func.line,
+                            "depth": func.nesting_depth,
+                        }
+                    )
 
                 if func.calls:
                     call_graph[f"{func.file_path}:{func.name}"] = func.calls

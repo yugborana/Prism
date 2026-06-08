@@ -11,7 +11,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket = "prism-terraform-state"
+    bucket = "prism-tfstate-yugborana-88"
     key    = "free-tier/terraform.tfstate"
     region = "us-east-1"
   }

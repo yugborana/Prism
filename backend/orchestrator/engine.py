@@ -48,6 +48,7 @@ from observability.tracing import get_tracer
 logger = get_logger(__name__)
 tracer = get_tracer(__name__)
 
+
 class ReviewOrchestrator:
     """
     Manages the lifecycle of a single PR review.
@@ -82,6 +83,7 @@ class ReviewOrchestrator:
         """
         try:
             from utils.connections import get_redis
+
             redis = get_redis()
             if redis is None:
                 logger.debug("redis_memory_pool_not_initialized_using_l1")
@@ -114,17 +116,20 @@ class ReviewOrchestrator:
                 "review.files_count": len(self.state.changed_files),
             },
         ) as review_span:
-
             # 1a. Load PRD content if configured
             prd_content = ""
             try:
                 from utils.config import settings as _settings
+
                 if _settings.prd_file_path:
                     import os
+
                     if os.path.isfile(_settings.prd_file_path):
+
                         def _read_prd():
                             with open(_settings.prd_file_path, "r", encoding="utf-8") as f:
                                 return f.read()
+
                         prd_content = await asyncio.to_thread(_read_prd)
                         logger.info("prd_loaded", path=_settings.prd_file_path, size=len(prd_content))
                     else:
@@ -136,12 +141,15 @@ class ReviewOrchestrator:
             self._prd_content = prd_content
 
             # Store PR context in memory for cross-agent access
-            await self.memory.set("pr_context", {
-                "title": self.state.pr_title,
-                "description": self.state.pr_description,
-                "repo": self.state.repo_full_name,
-                "files": self.state.changed_files,
-            })
+            await self.memory.set(
+                "pr_context",
+                {
+                    "title": self.state.pr_title,
+                    "description": self.state.pr_description,
+                    "repo": self.state.repo_full_name,
+                    "files": self.state.changed_files,
+                },
+            )
 
             # Log the review kickoff decision
             self.decision_log.log(
@@ -156,6 +164,7 @@ class ReviewOrchestrator:
             # 1b. Index PR diff into Qdrant so ContextFetcher has data to retrieve
             try:
                 from services.vector_indexer import VectorIndexer
+
                 indexer = VectorIndexer()
                 index_counts = await indexer.index_pr_diff(
                     diff=pr_data.get("diff", ""),
@@ -185,19 +194,14 @@ class ReviewOrchestrator:
                         # Deadlock protection: if nothing is ready but the graph
                         # isn't complete, skip all remaining PENDING tasks to
                         # prevent an infinite spin.
-                        pending = [
-                            t for t in graph.tasks.values()
-                            if t.status == TaskStatus.PENDING
-                        ]
+                        pending = [t for t in graph.tasks.values() if t.status == TaskStatus.PENDING]
                         if pending:
                             for t in pending:
                                 logger.warning("task_skipped_deadlock", task=t.name)
                                 t.status = TaskStatus.SKIPPED
                         break
 
-                    await asyncio.gather(*[
-                        self._execute_task(task, graph) for task in ready_tasks
-                    ])
+                    await asyncio.gather(*[self._execute_task(task, graph) for task in ready_tasks])
 
                 # 5. Log completion
                 duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -291,110 +295,109 @@ class ReviewOrchestrator:
                 "agent.task_name": task.name,
             },
         ) as agent_span:
-          with track_agent_task(task.agent_role):
-            try:
-                if task.agent_role == "ContextFetcher":
-                    updates = await context_fetcher_agent(self.state)
-                    self._apply_updates(updates)
+            with track_agent_task(task.agent_role):
+                try:
+                    if task.agent_role == "ContextFetcher":
+                        updates = await context_fetcher_agent(self.state)
+                        self._apply_updates(updates)
 
-                    # Append PRD content to context
-                    if self._prd_content:
-                        self.state.comprehensive_context += (
-                            "\n\n## Product Requirements Document (PRD)\n"
-                            + self._prd_content
+                        # Append PRD content to context
+                        if self._prd_content:
+                            self.state.comprehensive_context += (
+                                "\n\n## Product Requirements Document (PRD)\n" + self._prd_content
+                            )
+                            logger.info("prd_injected_into_context")
+
+                        # Log context fetcher decision
+                        self.decision_log.log(
+                            agent_role="ContextFetcher",
+                            decision_type="context_fetched",
+                            description=f"Fetched context for {len(self.state.changed_files)} files",
+                            rationale="Required by downstream review agents",
                         )
-                        logger.info("prd_injected_into_context")
 
-                    # Log context fetcher decision
-                    self.decision_log.log(
-                        agent_role="ContextFetcher",
-                        decision_type="context_fetched",
-                        description=f"Fetched context for {len(self.state.changed_files)} files",
-                        rationale="Required by downstream review agents",
-                    )
+                    elif task.agent_role in self.agents:
+                        agent = self.agents[task.agent_role]
+                        report_dict = await agent.run(self.state)
 
-                elif task.agent_role in self.agents:
-                    agent = self.agents[task.agent_role]
-                    report_dict = await agent.run(self.state)
+                        # Coerce raw dict into the proper Pydantic report model
+                        # so the Aggregator can access .findings directly
+                        report_model = self._coerce_report(task.agent_role, report_dict)
 
-                    # Coerce raw dict into the proper Pydantic report model
-                    # so the Aggregator can access .findings directly
-                    report_model = self._coerce_report(task.agent_role, report_dict)
+                        # Read findings from the validated model when available,
+                        # falling back to the raw dict if coercion returned a dict.
+                        if hasattr(report_model, "findings"):
+                            findings = report_model.findings  # list[CodeFinding]
+                        else:
+                            findings = report_dict.get("findings", [])
 
-                    # Read findings from the validated model when available,
-                    # falling back to the raw dict if coercion returned a dict.
-                    if hasattr(report_model, "findings"):
-                        findings = report_model.findings  # list[CodeFinding]
-                    else:
-                        findings = report_dict.get("findings", [])
+                        for finding in findings:
+                            # Share with other agents via memory
+                            finding_dict = finding.model_dump() if hasattr(finding, "model_dump") else finding
+                            await self.memory.share_finding(task.agent_role, finding_dict)
+                            # Emit Prometheus metric per finding
+                            sev = (
+                                finding.severity.value
+                                if hasattr(finding, "severity") and hasattr(finding.severity, "value")
+                                else finding_dict.get("severity", "info")
+                            )
+                            findings_total.labels(
+                                agent=task.agent_role,
+                                severity=sev,
+                            ).inc()
 
-                    for finding in findings:
-                        # Share with other agents via memory
-                        finding_dict = (
-                            finding.model_dump() if hasattr(finding, "model_dump") else finding
+                        # Log the agent's review decision
+                        self.decision_log.log(
+                            agent_role=task.agent_role,
+                            decision_type="review_completed",
+                            description=f"{task.agent_role} found {len(findings)} issues",
+                            rationale=report_dict.get("summary", "Analysis complete"),
+                            confidence=0.85,
+                            metadata={"findings_count": len(findings)},
                         )
-                        await self.memory.share_finding(task.agent_role, finding_dict)
-                        # Emit Prometheus metric per finding
-                        sev = (
-                            finding.severity.value
-                            if hasattr(finding, "severity") and hasattr(finding.severity, "value")
-                            else finding_dict.get("severity", "info")
-                        )
-                        findings_total.labels(
-                            agent=task.agent_role,
-                            severity=sev,
-                        ).inc()
 
-                    # Log the agent's review decision
+                        # Update status and report in state (Pydantic model, not raw dict)
+                        status_key = f"{task.agent_role.lower()}_agent_status"
+                        report_key = f"{task.agent_role.lower()}_report"
+                        self._apply_updates(
+                            {
+                                status_key: AgentStatus.COMPLETED,
+                                report_key: report_model,
+                            }
+                        )
+
+                    elif task.agent_role == "Aggregator":
+                        updates = await aggregator_agent(self.state)
+                        self._apply_updates(updates)
+
+                        self.decision_log.log(
+                            agent_role="Aggregator",
+                            decision_type="aggregation_completed",
+                            description="Merged all agent reports into final review",
+                            rationale="All specialist agents completed",
+                        )
+
+                    task.mark_completed({})
+                    agent_span.set_attribute("agent.status", "completed")
+                    logger.info("task_completed", task=task.name)
+
+                except Exception as e:
+                    logger.error("task_failed", task=task.name, error=str(e))
+                    task.mark_failed(str(e))
+                    agent_span.set_attribute("agent.status", "failed")
+                    agent_span.record_exception(e)
+
+                    # Log the failure decision
                     self.decision_log.log(
                         agent_role=task.agent_role,
-                        decision_type="review_completed",
-                        description=f"{task.agent_role} found {len(findings)} issues",
-                        rationale=report_dict.get("summary", "Analysis complete"),
-                        confidence=0.85,
-                        metadata={"findings_count": len(findings)},
+                        decision_type="task_failed",
+                        description=f"{task.name} failed: {str(e)[:100]}",
+                        rationale="Exception during execution",
+                        confidence=0.0,
                     )
 
-                    # Update status and report in state (Pydantic model, not raw dict)
                     status_key = f"{task.agent_role.lower()}_agent_status"
-                    report_key = f"{task.agent_role.lower()}_report"
-                    self._apply_updates({
-                        status_key: AgentStatus.COMPLETED,
-                        report_key: report_model,
-                    })
-
-                elif task.agent_role == "Aggregator":
-                    updates = await aggregator_agent(self.state)
-                    self._apply_updates(updates)
-
-                    self.decision_log.log(
-                        agent_role="Aggregator",
-                        decision_type="aggregation_completed",
-                        description="Merged all agent reports into final review",
-                        rationale="All specialist agents completed",
-                    )
-
-                task.mark_completed({})
-                agent_span.set_attribute("agent.status", "completed")
-                logger.info("task_completed", task=task.name)
-
-            except Exception as e:
-                logger.error("task_failed", task=task.name, error=str(e))
-                task.mark_failed(str(e))
-                agent_span.set_attribute("agent.status", "failed")
-                agent_span.record_exception(e)
-
-                # Log the failure decision
-                self.decision_log.log(
-                    agent_role=task.agent_role,
-                    decision_type="task_failed",
-                    description=f"{task.name} failed: {str(e)[:100]}",
-                    rationale="Exception during execution",
-                    confidence=0.0,
-                )
-
-                status_key = f"{task.agent_role.lower()}_agent_status"
-                self._apply_updates({status_key: AgentStatus.FAILED})
+                    self._apply_updates({status_key: AgentStatus.FAILED})
 
     def _apply_updates(self, updates: dict[str, Any]):
         """Helper to update Pydantic state via direct attribute setting."""
@@ -452,13 +455,16 @@ class ReviewOrchestrator:
                 # Persist all findings from shared memory
                 shared_findings = await self.memory.get_shared_findings()
                 if shared_findings:
-                    await repo.save_findings(review_record.id, [
-                        {
-                            "agent": f["agent"],
-                            **f["finding"],
-                        }
-                        for f in shared_findings
-                    ])
+                    await repo.save_findings(
+                        review_record.id,
+                        [
+                            {
+                                "agent": f["agent"],
+                                **f["finding"],
+                            }
+                            for f in shared_findings
+                        ],
+                    )
 
                 # Mark the review as completed
                 await repo.complete_review(

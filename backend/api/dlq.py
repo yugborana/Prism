@@ -46,16 +46,18 @@ async def _get_async_redis():
 
 # ── Request Models ────────────────────────────────────────────────────────
 
+
 class ReplayRequest(BaseModel):
     """Request to replay DLQ messages."""
+
     index: int | None = Field(
         default=None,
-        description="Index of a specific DLQ message to replay (0-based). "
-                    "If None, replays ALL messages.",
+        description="Index of a specific DLQ message to replay (0-based). If None, replays ALL messages.",
     )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────
+
 
 @router.get("")
 async def list_dlq_messages(

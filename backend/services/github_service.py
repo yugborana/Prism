@@ -83,9 +83,11 @@ class GitHubService:
         key_path = settings.github_app_private_key_path
         if key_path:
             try:
+
                 def _read_file():
                     with open(key_path, "r") as f:
                         return f.read()
+
                 self._private_key = await asyncio.to_thread(_read_file)
                 logger.info("github_private_key_loaded", source="file", path=key_path)
                 return self._private_key
@@ -109,8 +111,8 @@ class GitHubService:
 
         now = int(time.time())
         payload = {
-            "iat": now - 60,               # Issued 60s ago (clock skew tolerance)
-            "exp": now + (10 * 60),         # Expires in 10 minutes
+            "iat": now - 60,  # Issued 60s ago (clock skew tolerance)
+            "exp": now + (10 * 60),  # Expires in 10 minutes
             "iss": settings.github_app_id,  # GitHub App ID
         }
 
@@ -281,9 +283,7 @@ class GitHubService:
                 logger.error("github_files_fetch_failed", pr=pr_number, error=str(e))
                 return []
 
-    async def fetch_pr_files_with_patches(
-        self, repo_full_name: str, pr_number: int
-    ) -> list[dict]:
+    async def fetch_pr_files_with_patches(self, repo_full_name: str, pr_number: int) -> list[dict]:
         """
         Fetch per-file metadata including patches, with cumulative diff size cap.
 
@@ -326,13 +326,15 @@ class GitHubService:
                     continue
 
                 total_diff_size += patch_size
-                file_details.append({
-                    "filename": f.get("filename", ""),
-                    "status": f.get("status", ""),
-                    "additions": f.get("additions", 0),
-                    "deletions": f.get("deletions", 0),
-                    "patch": patch,
-                })
+                file_details.append(
+                    {
+                        "filename": f.get("filename", ""),
+                        "status": f.get("status", ""),
+                        "additions": f.get("additions", 0),
+                        "deletions": f.get("deletions", 0),
+                        "patch": patch,
+                    }
+                )
 
             span.set_attribute("github.total_files", len(raw_files))
             span.set_attribute("github.included_files", len(file_details))
@@ -404,7 +406,12 @@ class GitHubService:
                 response = await client.post(url, json=payload, headers=headers, timeout=30)
                 span.set_attribute("http.status_code", response.status_code)
                 response.raise_for_status()
-                logger.info("github_review_posted", repo=repo_full_name, pr=pr_number, commit=head_sha[:8] if head_sha else "none")
+                logger.info(
+                    "github_review_posted",
+                    repo=repo_full_name,
+                    pr=pr_number,
+                    commit=head_sha[:8] if head_sha else "none",
+                )
                 return response.json()
             except Exception as e:
                 span.record_exception(e)

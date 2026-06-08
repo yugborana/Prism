@@ -30,6 +30,7 @@ class VectorIndexer:
         # creating a new one per file (avoids re-initializing the SDK
         # and its HTTP connection pool on every call).
         from utils.llm_factory import LLMClient
+
         self._llm_client = LLMClient()
 
     async def index_pr_diff(
@@ -104,7 +105,7 @@ class VectorIndexer:
     def _extract_code_graph(self, file_path: str, file_diff: str) -> dict | None:
         """
         Extract function/class/import structure from the added lines in a diff.
-        
+
         DESIGN NOTE:
         This is a lightweight regex-based parser rather than a full tree-sitter
         AST parser (like simple_ast_parser.py). Since the Celery worker task only
@@ -191,9 +192,7 @@ class VectorIndexer:
             "node_count": len(functions) + len(classes),
         }
 
-    async def _index_code_graph(
-        self, code_graph: dict, repo_name: str, pr_number: int
-    ) -> None:
+    async def _index_code_graph(self, code_graph: dict, repo_name: str, pr_number: int) -> None:
         """Embed and upsert a code graph into the code_graphs collection."""
         from qdrant_client.models import PointStruct
 
@@ -220,19 +219,16 @@ class VectorIndexer:
         )
 
         import asyncio
+
         await asyncio.to_thread(self._client.upsert, collection_name="code_graphs", points=[point])
 
-    async def _index_import_file(
-        self, file_path: str, file_diff: str, repo_name: str, pr_number: int
-    ) -> None:
+    async def _index_import_file(self, file_path: str, file_diff: str, repo_name: str, pr_number: int) -> None:
         """Embed and upsert a file's diff content into the import_files collection."""
         from qdrant_client.models import PointStruct
 
         # Use only added lines as the source context (max 2000 chars)
         added_lines = [
-            line[1:]
-            for line in file_diff.split("\n")
-            if line.startswith("+") and not line.startswith("+++")
+            line[1:] for line in file_diff.split("\n") if line.startswith("+") and not line.startswith("+++")
         ]
         source_code = "\n".join(added_lines)[:2000]
 
@@ -256,6 +252,7 @@ class VectorIndexer:
         )
 
         import asyncio
+
         await asyncio.to_thread(self._client.upsert, collection_name="import_files", points=[point])
 
     async def _embed_text(self, text: str) -> list[float] | None:

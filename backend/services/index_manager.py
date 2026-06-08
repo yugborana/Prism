@@ -44,9 +44,9 @@ class IndexStats:
     total_files: int = 0
     files_changed: int = 0
     total_chunks: int = 0
-    chunks_embedded: int = 0      # Actually called embedding API
-    chunks_cached: int = 0        # Hit embedding cache
-    chunks_copied: int = 0        # Copied from SimHash match
+    chunks_embedded: int = 0  # Actually called embedding API
+    chunks_cached: int = 0  # Hit embedding cache
+    chunks_copied: int = 0  # Copied from SimHash match
     duration_seconds: float = 0.0
     simhash_source: str | None = None  # Repo we copied from, if any
     skipped_reason: str | None = None  # If indexing was skipped, why
@@ -99,14 +99,10 @@ class IndexManager:
 
         try:
             # Step 1: Clone
-            repo_path = await self.cloner.ensure_clone(
-                repo_name, base_branch, installation_id
-            )
+            repo_path = await self.cloner.ensure_clone(repo_name, base_branch, installation_id)
 
             # Step 2: Build Merkle tree
-            merkle = await asyncio.to_thread(
-                MerkleTree.build_from_directory, repo_path
-            )
+            merkle = await asyncio.to_thread(MerkleTree.build_from_directory, repo_path)
             all_files = merkle.get_all_files()
             stats.total_files = len(all_files)
 
@@ -121,9 +117,7 @@ class IndexManager:
                 return stats
 
             # Step 3: Check SimHash for reusable index (same installation only)
-            similar_repo = await self.simhash.find_similar(
-                merkle, installation_id, exclude_repo=repo_name
-            )
+            similar_repo = await self.simhash.find_similar(merkle, installation_id, exclude_repo=repo_name)
 
             if similar_repo:
                 # Copy the existing index
@@ -161,13 +155,9 @@ class IndexManager:
             if chunks:
                 # Delete old chunks for changed files before upserting new ones
                 if similar_repo:
-                    await self._delete_chunks_for_files(
-                        repo_name, [c.file_path for c in chunks]
-                    )
+                    await self._delete_chunks_for_files(repo_name, [c.file_path for c in chunks])
 
-                embedded, cached = await self._embed_and_upsert(
-                    chunks, repo_name
-                )
+                embedded, cached = await self._embed_and_upsert(chunks, repo_name)
                 stats.chunks_embedded = embedded
                 stats.chunks_cached = cached
 
@@ -219,14 +209,10 @@ class IndexManager:
 
         try:
             # Step 1: Update clone
-            repo_path = await self.cloner.ensure_clone(
-                repo_name, base_branch, installation_id
-            )
+            repo_path = await self.cloner.ensure_clone(repo_name, base_branch, installation_id)
 
             # Step 2: Build new Merkle tree
-            new_merkle = await asyncio.to_thread(
-                MerkleTree.build_from_directory, repo_path
-            )
+            new_merkle = await asyncio.to_thread(MerkleTree.build_from_directory, repo_path)
             stats.total_files = len(new_merkle.get_all_files())
 
             # Step 3: Diff against stored tree
@@ -253,9 +239,7 @@ class IndexManager:
                 unique_files = list({c.file_path for c in chunks})
                 await self._delete_chunks_for_files(repo_name, unique_files)
 
-                embedded, cached = await self._embed_and_upsert(
-                    chunks, repo_name
-                )
+                embedded, cached = await self._embed_and_upsert(chunks, repo_name)
                 stats.chunks_embedded = embedded
                 stats.chunks_cached = cached
 
@@ -309,6 +293,7 @@ class IndexManager:
                         continue
 
                     import json
+
                     meta = json.loads(meta_raw)
                     indexed_at = meta.get("indexed_at", 0)
 
@@ -320,9 +305,7 @@ class IndexManager:
                         await self._delete_all_repo_chunks(repo_name)
 
                         # Delete metadata from Redis
-                        await self.simhash.delete_index_meta(
-                            repo_name, installation_id
-                        )
+                        await self.simhash.delete_index_meta(repo_name, installation_id)
 
                         cleaned += 1
                         logger.info(
@@ -343,17 +326,13 @@ class IndexManager:
 
     # ── Internal Helpers ──────────────────────────────────────────────────
 
-    async def _chunk_files(
-        self, repo_path: Path, file_paths: list[str]
-    ) -> list[CodeChunk]:
+    async def _chunk_files(self, repo_path: Path, file_paths: list[str]) -> list[CodeChunk]:
         """Chunk multiple files using the syntactic chunker."""
         all_chunks: list[CodeChunk] = []
 
         for file_path in file_paths:
             try:
-                chunks = await asyncio.to_thread(
-                    self.chunker.chunk_file_from_disk, repo_path, file_path
-                )
+                chunks = await asyncio.to_thread(self.chunker.chunk_file_from_disk, repo_path, file_path)
                 all_chunks.extend(chunks)
             except Exception as e:
                 logger.warning(
@@ -364,9 +343,7 @@ class IndexManager:
 
         return all_chunks
 
-    async def _embed_and_upsert(
-        self, chunks: list[CodeChunk], repo_name: str
-    ) -> tuple[int, int]:
+    async def _embed_and_upsert(self, chunks: list[CodeChunk], repo_name: str) -> tuple[int, int]:
         """Embed chunks (with cache) and upsert to Qdrant.
 
         Returns (chunks_embedded, chunks_cached).
@@ -383,7 +360,7 @@ class IndexManager:
 
         # Process in batches
         for batch_start in range(0, len(chunks), EMBED_BATCH_SIZE):
-            batch = chunks[batch_start:batch_start + EMBED_BATCH_SIZE]
+            batch = chunks[batch_start : batch_start + EMBED_BATCH_SIZE]
 
             # Prepare embedding inputs
             content_hashes = [c.content_hash for c in batch]
@@ -436,9 +413,7 @@ class IndexManager:
 
         return total_embedded, total_cached
 
-    async def _delete_chunks_for_files(
-        self, repo_name: str, file_paths: list[str]
-    ) -> None:
+    async def _delete_chunks_for_files(self, repo_name: str, file_paths: list[str]) -> None:
         """Delete existing Qdrant points for specific files in a repo."""
         from qdrant_client.models import Filter, FieldCondition, MatchValue
         from utils.qdrant_client import get_qdrant_client

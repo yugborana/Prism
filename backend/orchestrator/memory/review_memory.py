@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 class ReviewMemory:
     """
     Session-scoped memory for a single PR review.
-    
+
     Unlike ProjectMemory (which tracks an entire software project lifecycle),
     ReviewMemory is scoped to one PR review session and expires after completion.
     """
@@ -96,20 +96,22 @@ class ReviewMemory:
     async def share_finding(self, agent_role: str, finding: dict[str, Any]) -> None:
         """
         Allow agents to share findings with each other.
-        
+
         Example: Security agent finds an auth bypass; the Quality agent
         can check if the same code path has other issues.
         """
         findings_key = "shared_findings"
-        
+
         # Thread/Async-safe in-memory append
         current = self._hot.setdefault(findings_key, [])
-        current.append({
-            "agent": agent_role,
-            "finding": finding,
-            "timestamp": datetime.now(UTC).isoformat(),
-        })
-        
+        current.append(
+            {
+                "agent": agent_role,
+                "finding": finding,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+
         # Best-effort sync to L2 (Redis) if available
         if self._redis:
             try:

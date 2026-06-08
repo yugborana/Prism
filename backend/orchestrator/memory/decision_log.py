@@ -62,7 +62,7 @@ class DecisionRecord:
 class ReviewDecisionLog:
     """
     Append-only log of every agent decision for a single PR review.
-    
+
     Enables:
     - Timeline replay of the review process
     - Filtering decisions by agent or type
@@ -123,10 +123,7 @@ class ReviewDecisionLog:
             "by_agent": agent_counts,
             "by_type": type_counts,
             "low_confidence_count": len(self.get_low_confidence()),
-            "avg_confidence": (
-                sum(r.confidence for r in self._records) / len(self._records)
-                if self._records else 0.0
-            ),
+            "avg_confidence": (sum(r.confidence for r in self._records) / len(self._records) if self._records else 0.0),
         }
 
     def all_entries(self) -> list[dict[str, Any]]:

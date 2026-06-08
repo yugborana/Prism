@@ -15,6 +15,7 @@ from utils.connections import get_httpx_client
 
 logger = get_logger(__name__)
 
+
 class DashboardService:
     """Creates dashboards in Grafana, Datadog, and Amplitude."""
 
@@ -170,7 +171,11 @@ class DashboardService:
         if not widgets:
             widgets = [
                 {
-                    "definition": {"type": "timeseries", "title": "Default", "requests": [{"q": "avg:system.cpu.user{*}"}]},
+                    "definition": {
+                        "type": "timeseries",
+                        "title": "Default",
+                        "requests": [{"q": "avg:system.cpu.user{*}"}],
+                    },
                     "layout": {"x": 0, "y": 0, "width": 12, "height": 4},
                 }
             ]
@@ -234,7 +239,7 @@ class DashboardService:
             "status": "placeholder",
             "name": name,
             "message": "Amplitude dashboard creation requires manual setup. "
-                       "Event names and properties have been identified for configuration.",
+            "Event names and properties have been identified for configuration.",
         }
 
     # ── Router ────────────────────────────────────────────────────────────

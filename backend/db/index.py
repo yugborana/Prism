@@ -82,8 +82,12 @@ def initialize_collections() -> None:
             # repo_chunks needs multiple payload indexes for filtered search
             if collection_name == "repo_chunks":
                 for field_name in [
-                    "repo_name", "file_path", "symbol_name",
-                    "chunk_type", "symbols_called", "imports",
+                    "repo_name",
+                    "file_path",
+                    "symbol_name",
+                    "chunk_type",
+                    "symbols_called",
+                    "imports",
                 ]:
                     try:
                         qdrant_client.create_payload_index(
@@ -93,7 +97,9 @@ def initialize_collections() -> None:
                         )
                     except Exception as idx_err:
                         if "already exists" not in str(idx_err).lower():
-                            logger.debug("payload_index_note", collection=collection_name, field=field_name, error=str(idx_err))
+                            logger.debug(
+                                "payload_index_note", collection=collection_name, field=field_name, error=str(idx_err)
+                            )
                 logger.debug("repo_chunks_indexes_created")
 
         except Exception as e:

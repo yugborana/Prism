@@ -21,6 +21,7 @@ from agents.prompts import (
 from agents.reasoning import ReasoningChain, ReasoningStep
 from agents.schemas import ObservabilityReport
 
+
 class ObservabilityAgent(BaseReviewAgent):
     """Reviews code changes for missing observability instrumentation."""
 

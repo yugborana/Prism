@@ -31,6 +31,7 @@ class TaskStatus(StrEnum):
 
 class Task(BaseModel):
     """Represents a single step in the review pipeline."""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     agent_role: str  # ContextFetcher, Security, Quality, Performance, Aggregator
@@ -63,6 +64,7 @@ class TaskGraph:
     """
     DAG-based orchestration for the Prism review pipeline.
     """
+
     def __init__(self, review_id: str):
         self.review_id = review_id
         self.graph = nx.DiGraph()
@@ -97,8 +99,7 @@ class TaskGraph:
                 continue
             deps = list(self.graph.predecessors(task_id))
             all_resolved = all(
-                self.tasks[dep].status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SKIPPED)
-                for dep in deps
+                self.tasks[dep].status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SKIPPED) for dep in deps
             )
             if all_resolved:
                 ready.append(task)
@@ -111,8 +112,7 @@ class TaskGraph:
 
     def is_complete(self) -> bool:
         return all(
-            t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SKIPPED)
-            for t in self.tasks.values()
+            t.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SKIPPED) for t in self.tasks.values()
         )
 
     def get_status_summary(self) -> dict[str, Any]:
@@ -122,5 +122,5 @@ class TaskGraph:
         return {
             "total": len(self.tasks),
             **counts,
-            "progress": round((counts[TaskStatus.COMPLETED] / len(self.tasks)) * 100, 1) if self.tasks else 0
+            "progress": round((counts[TaskStatus.COMPLETED] / len(self.tasks)) * 100, 1) if self.tasks else 0,
         }

@@ -32,13 +32,9 @@ def _build_filter(conditions: list[dict[str, Any]]) -> Any:
         for cond in conditions:
             key = cond["key"]
             if "value" in cond:
-                must.append(
-                    FieldCondition(key=key, match=MatchValue(value=cond["value"]))
-                )
+                must.append(FieldCondition(key=key, match=MatchValue(value=cond["value"])))
             elif "any" in cond:
-                must.append(
-                    FieldCondition(key=key, match=MatchAny(any=cond["any"]))
-                )
+                must.append(FieldCondition(key=key, match=MatchAny(any=cond["any"])))
         return Filter(must=must)
     except ImportError:
         return {"must": conditions}
@@ -54,6 +50,7 @@ class SymbolRetriever:
     def _get_llm(self) -> Any:
         if self._llm_client is None:
             from utils.llm_factory import LLMClient
+
             self._llm_client = LLMClient()
         return self._llm_client
 
@@ -70,10 +67,12 @@ class SymbolRetriever:
         try:
             points, _ = self._client.scroll(
                 collection_name="repo_chunks",
-                scroll_filter=_build_filter([
-                    {"key": "repo_name", "value": repo_name},
-                    {"key": "symbols_called", "any": [function_name]},
-                ]),
+                scroll_filter=_build_filter(
+                    [
+                        {"key": "repo_name", "value": repo_name},
+                        {"key": "symbols_called", "any": [function_name]},
+                    ]
+                ),
                 limit=limit,
                 with_payload=True,
             )
@@ -99,10 +98,12 @@ class SymbolRetriever:
         try:
             points, _ = self._client.scroll(
                 collection_name="repo_chunks",
-                scroll_filter=_build_filter([
-                    {"key": "repo_name", "value": repo_name},
-                    {"key": "imports", "any": [normalized, module_path]},
-                ]),
+                scroll_filter=_build_filter(
+                    [
+                        {"key": "repo_name", "value": repo_name},
+                        {"key": "imports", "any": [normalized, module_path]},
+                    ]
+                ),
                 limit=limit,
                 with_payload=True,
             )
@@ -136,9 +137,11 @@ class SymbolRetriever:
             results = self._client.search(
                 collection_name="repo_chunks",
                 query_vector=embedding,
-                query_filter=_build_filter([
-                    {"key": "repo_name", "value": repo_name},
-                ]),
+                query_filter=_build_filter(
+                    [
+                        {"key": "repo_name", "value": repo_name},
+                    ]
+                ),
                 limit=limit,
                 with_payload=True,
             )
@@ -171,11 +174,13 @@ class SymbolRetriever:
             dependents = self.find_dependents(file_path, repo_name, limit=15)
             for dep in dependents:
                 if dep.get("file_path") != file_path:
-                    file_info["dependents"].append({
-                        "file": dep.get("file_path", ""),
-                        "symbol": dep.get("symbol_name", ""),
-                        "line": dep.get("start_line", 0),
-                    })
+                    file_info["dependents"].append(
+                        {
+                            "file": dep.get("file_path", ""),
+                            "symbol": dep.get("symbol_name", ""),
+                            "line": dep.get("start_line", 0),
+                        }
+                    )
 
             radius[file_path] = file_info
 
@@ -185,21 +190,25 @@ class SymbolRetriever:
             for caller in callers:
                 caller_file = caller.get("file_path", "")
                 if caller_file in radius:
-                    radius[caller_file]["callers"].append({
-                        "file": caller_file,
-                        "caller": caller.get("symbol_name", ""),
-                        "line": caller.get("start_line", 0),
-                        "called_function": symbol,
-                    })
+                    radius[caller_file]["callers"].append(
+                        {
+                            "file": caller_file,
+                            "caller": caller.get("symbol_name", ""),
+                            "line": caller.get("start_line", 0),
+                            "called_function": symbol,
+                        }
+                    )
                 else:
                     # Caller is in a file not in changed_files
                     if symbol not in radius:
                         radius[symbol] = {"callers": [], "dependents": []}
-                    radius[symbol]["callers"].append({
-                        "file": caller_file,
-                        "caller": caller.get("symbol_name", ""),
-                        "line": caller.get("start_line", 0),
-                    })
+                    radius[symbol]["callers"].append(
+                        {
+                            "file": caller_file,
+                            "caller": caller.get("symbol_name", ""),
+                            "line": caller.get("start_line", 0),
+                        }
+                    )
 
         return radius
 
@@ -221,10 +230,12 @@ class SymbolRetriever:
             try:
                 points, _ = self._client.scroll(
                     collection_name="repo_chunks",
-                    scroll_filter=_build_filter([
-                        {"key": "repo_name", "value": repo_name},
-                        {"key": "file_path", "value": file_path},
-                    ]),
+                    scroll_filter=_build_filter(
+                        [
+                            {"key": "repo_name", "value": repo_name},
+                            {"key": "file_path", "value": file_path},
+                        ]
+                    ),
                     limit=50,
                     with_payload=True,
                 )
@@ -241,10 +252,7 @@ class SymbolRetriever:
         # Step 2: For each changed file, find who depends on it
         for file_path in changed_files[:10]:  # Cap at 10 files
             dependents = self.find_dependents(file_path, repo_name, limit=8)
-            external_deps = [
-                d for d in dependents
-                if d.get("file_path") != file_path
-            ]
+            external_deps = [d for d in dependents if d.get("file_path") != file_path]
 
             if external_deps:
                 parts.append(f"\n### {file_path} (CHANGED)")
@@ -257,10 +265,7 @@ class SymbolRetriever:
         seen_callers: set[str] = set()  # Dedupe
         for symbol in changed_symbols[:15]:  # Cap at 15 symbols
             callers = self.find_callers(symbol, repo_name, limit=8)
-            external_callers = [
-                c for c in callers
-                if c.get("file_path") not in changed_files
-            ]
+            external_callers = [c for c in callers if c.get("file_path") not in changed_files]
 
             if external_callers:
                 parts.append(f"\n**`{symbol}()` is called by:**")
@@ -271,9 +276,7 @@ class SymbolRetriever:
                     key = f"{caller_file}:{caller_sym}"
                     if key not in seen_callers:
                         seen_callers.add(key)
-                        parts.append(
-                            f"  - `{caller_file}:{caller_line}` in `{caller_sym}()`"
-                        )
+                        parts.append(f"  - `{caller_file}:{caller_line}` in `{caller_sym}()`")
 
         if not parts:
             return ""

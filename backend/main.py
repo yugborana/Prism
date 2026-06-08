@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
         from observability.tracing import init_tracing
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-        
+
         init_tracing("prism-api")
         FastAPIInstrumentor.instrument_app(app)
         HTTPXClientInstrumentor().instrument()
@@ -49,6 +49,7 @@ async def lifespan(app: FastAPI):
     # ── Initialize PostgreSQL (Audit Trail) ───────────────────────────
     try:
         from db.postgres import init_db
+
         await init_db()
         logger.info("postgres_initialized")
     except Exception as e:
@@ -57,6 +58,7 @@ async def lifespan(app: FastAPI):
     # ── Initialize Vector Database ────────────────────────────────────
     try:
         from db.index import initialize_collections
+
         initialize_collections()
         logger.info("vector_db_initialized")
     except Exception as e:
@@ -67,9 +69,12 @@ async def lifespan(app: FastAPI):
 
     # ── Initialize Connection Pools ───────────────────────────────────
     from utils.connections import (
-        init_redis_pool, close_redis_pool,
-        init_httpx_client, close_httpx_client,
+        init_redis_pool,
+        close_redis_pool,
+        init_httpx_client,
+        close_httpx_client,
     )
+
     try:
         await init_redis_pool()
     except Exception as e:
@@ -88,6 +93,7 @@ async def lifespan(app: FastAPI):
     await close_httpx_client()
     try:
         from db.postgres import close_db
+
         await close_db()
     except Exception:
         pass
@@ -122,20 +128,22 @@ app.include_router(dlq_router, prefix="/api/v1")
 async def health_check():
     """Liveness probe for Kubernetes / Docker health checks."""
     checks = {"postgres": False, "redis": False}
-    
+
     # 1. Check PostgreSQL
     try:
         from db.postgres import get_db_session
         from sqlalchemy import text
+
         async with get_db_session() as s:
             await s.execute(text("SELECT 1"))
             checks["postgres"] = True
     except Exception as e:
         logger.warning("health_check_postgres_failed", error=str(e))
-        
+
     # 2. Check Redis (uses shared pool — no per-request connection)
     try:
         from utils.connections import get_redis
+
         redis = get_redis()
         if redis is not None:
             await redis.ping()

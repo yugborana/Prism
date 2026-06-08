@@ -39,17 +39,17 @@ MAX_TOPLEVEL_CHUNK_LINES = 30
 class CodeChunk:
     """A semantically meaningful unit of code from a source file."""
 
-    file_path: str           # Relative path: "services/billing.py"
-    chunk_index: int         # 0, 1, 2, ... within the file
-    chunk_type: str          # "function", "method", "class_header", "imports", "top_level"
-    content: str             # The actual source code
-    content_hash: str        # SHA-256 of content — used for embedding cache key
-    start_line: int          # 1-indexed
-    end_line: int            # 1-indexed, inclusive
+    file_path: str  # Relative path: "services/billing.py"
+    chunk_index: int  # 0, 1, 2, ... within the file
+    chunk_type: str  # "function", "method", "class_header", "imports", "top_level"
+    content: str  # The actual source code
+    content_hash: str  # SHA-256 of content — used for embedding cache key
+    start_line: int  # 1-indexed
+    end_line: int  # 1-indexed, inclusive
     symbol_name: str | None  # "process_payment" for functions, "PaymentService" for classes
     symbols_defined: list[str] = field(default_factory=list)  # Functions/classes defined
-    symbols_called: list[str] = field(default_factory=list)   # Functions called from this chunk
-    imports: list[str] = field(default_factory=list)          # Modules imported
+    symbols_called: list[str] = field(default_factory=list)  # Functions called from this chunk
+    imports: list[str] = field(default_factory=list)  # Modules imported
 
     @property
     def line_count(self) -> int:
@@ -141,19 +141,13 @@ class SyntacticChunker:
         covered_lines: set[int] = set()  # 0-indexed lines covered by a chunk
 
         # Phase 1: Extract functions and classes (the big structural elements)
-        self._extract_structural_chunks(
-            tree.root_node, source_code, lines, file_path, language, chunks, covered_lines
-        )
+        self._extract_structural_chunks(tree.root_node, source_code, lines, file_path, language, chunks, covered_lines)
 
         # Phase 2: Extract import blocks
-        self._extract_import_chunks(
-            tree.root_node, source_code, lines, file_path, language, chunks, covered_lines
-        )
+        self._extract_import_chunks(tree.root_node, source_code, lines, file_path, language, chunks, covered_lines)
 
         # Phase 3: Collect remaining top-level code into chunks
-        self._extract_toplevel_chunks(
-            lines, file_path, chunks, covered_lines
-        )
+        self._extract_toplevel_chunks(lines, file_path, chunks, covered_lines)
 
         # Sort by start_line and re-index
         chunks.sort(key=lambda c: c.start_line)
@@ -204,9 +198,13 @@ class SyntacticChunker:
                 # The actual definition is inside the decorator wrapper
                 for sub in child.children:
                     if sub.type in func_types:
-                        self._chunk_function(sub, source, lines, file_path, language, chunks, covered, decorator_node=child)
+                        self._chunk_function(
+                            sub, source, lines, file_path, language, chunks, covered, decorator_node=child
+                        )
                     elif sub.type in class_types:
-                        self._chunk_class(sub, source, lines, file_path, language, chunks, covered, decorator_node=child)
+                        self._chunk_class(
+                            sub, source, lines, file_path, language, chunks, covered, decorator_node=child
+                        )
 
     def _chunk_function(
         self,
@@ -223,15 +221,15 @@ class SyntacticChunker:
         # Use decorator node's span if it exists
         start_node = decorator_node or node
         start_line = start_node.start_point[0]  # 0-indexed
-        end_line = node.end_point[0]             # 0-indexed
+        end_line = node.end_point[0]  # 0-indexed
         func_lines = end_line - start_line + 1
 
         # Extract function name
         name_node = node.child_by_field_name("name")
-        func_name = source[name_node.start_byte:name_node.end_byte] if name_node else None
+        func_name = source[name_node.start_byte : name_node.end_byte] if name_node else None
 
         # Extract the function source
-        func_source = "\n".join(lines[start_line:end_line + 1])
+        func_source = "\n".join(lines[start_line : end_line + 1])
 
         # Extract call graph info
         calls = self._extract_calls(node, source, language)
@@ -239,7 +237,11 @@ class SyntacticChunker:
         if func_lines <= MAX_CHUNK_LINES:
             # Small function → 1 chunk
             chunk = self._make_chunk(
-                file_path, 0, "function", func_source, start_line + 1,
+                file_path,
+                0,
+                "function",
+                func_source,
+                start_line + 1,
                 symbol_name=func_name,
                 symbols_defined=[func_name] if func_name else [],
                 symbols_called=calls,
@@ -276,9 +278,14 @@ class SyntacticChunker:
             child_start = child.start_point[0]
             # Split at major block statements
             if child.type in {
-                "if_statement", "for_statement", "while_statement",
-                "try_statement", "with_statement", "match_statement",
-                "for_in_statement", "switch_statement",
+                "if_statement",
+                "for_statement",
+                "while_statement",
+                "try_statement",
+                "with_statement",
+                "match_statement",
+                "for_in_statement",
+                "switch_statement",
             }:
                 if child_start > split_points[-1] + 10:  # Min 10 lines between splits
                     split_points.append(child_start)
@@ -292,11 +299,14 @@ class SyntacticChunker:
             if chunk_end < chunk_start:
                 continue
 
-            chunk_source = "\n".join(lines[chunk_start:chunk_end + 1])
+            chunk_source = "\n".join(lines[chunk_start : chunk_end + 1])
             suffix = f"_part{i + 1}" if len(split_points) > 2 else ""
             chunk = self._make_chunk(
-                file_path, 0, "function",
-                chunk_source, chunk_start + 1,
+                file_path,
+                0,
+                "function",
+                chunk_source,
+                chunk_start + 1,
                 symbol_name=f"{func_name}{suffix}" if func_name else None,
                 symbols_defined=[func_name] if func_name and i == 0 else [],
                 symbols_called=calls if i == 0 else [],
@@ -322,7 +332,7 @@ class SyntacticChunker:
         end_line = node.end_point[0]
 
         name_node = node.child_by_field_name("name")
-        class_name = source[name_node.start_byte:name_node.end_byte] if name_node else None
+        class_name = source[name_node.start_byte : name_node.end_byte] if name_node else None
 
         # Find the class body
         body_node = node.child_by_field_name("body")
@@ -336,7 +346,7 @@ class SyntacticChunker:
                 if child.type in func_types:
                     m_name_node = child.child_by_field_name("name")
                     if m_name_node:
-                        m_name = source[m_name_node.start_byte:m_name_node.end_byte]
+                        m_name = source[m_name_node.start_byte : m_name_node.end_byte]
                         method_names.append(m_name)
                         method_ranges.append((child.start_point[0], child.end_point[0]))
 
@@ -346,10 +356,13 @@ class SyntacticChunker:
         else:
             header_end = end_line
 
-        header_source = "\n".join(lines[start_line:max(header_end + 1, start_line + 1)])
+        header_source = "\n".join(lines[start_line : max(header_end + 1, start_line + 1)])
         header_chunk = self._make_chunk(
-            file_path, 0, "class_header",
-            header_source, start_line + 1,
+            file_path,
+            0,
+            "class_header",
+            header_source,
+            start_line + 1,
             symbol_name=class_name,
             symbols_defined=[class_name] if class_name else [],
         )
@@ -359,9 +372,7 @@ class SyntacticChunker:
         if body_node:
             for child in body_node.children:
                 if child.type in func_types:
-                    self._chunk_function(
-                        child, source, lines, file_path, language, chunks, covered
-                    )
+                    self._chunk_function(child, source, lines, file_path, language, chunks, covered)
 
         # Mark all class lines as covered
         for i in range(start_line, end_line + 1):
@@ -407,15 +418,16 @@ class SyntacticChunker:
         for group in groups:
             start = group[0]
             end = group[-1]
-            import_source = "\n".join(lines[start:end + 1])
+            import_source = "\n".join(lines[start : end + 1])
             # Extract imported module names
-            imported = self._extract_import_names(
-                root_node, source, language, start, end
-            )
+            imported = self._extract_import_names(root_node, source, language, start, end)
 
             chunk = self._make_chunk(
-                file_path, 0, "imports",
-                import_source, start + 1,
+                file_path,
+                0,
+                "imports",
+                import_source,
+                start + 1,
                 imports=imported,
             )
             chunks.append(chunk)
@@ -452,11 +464,14 @@ class SyntacticChunker:
         for start, end in uncovered_ranges:
             for chunk_start in range(start, end + 1, MAX_TOPLEVEL_CHUNK_LINES):
                 chunk_end = min(chunk_start + MAX_TOPLEVEL_CHUNK_LINES - 1, end)
-                source = "\n".join(lines[chunk_start:chunk_end + 1])
+                source = "\n".join(lines[chunk_start : chunk_end + 1])
                 if source.strip():
                     chunk = self._make_chunk(
-                        file_path, 0, "top_level",
-                        source, chunk_start + 1,
+                        file_path,
+                        0,
+                        "top_level",
+                        source,
+                        chunk_start + 1,
                     )
                     chunks.append(chunk)
 
@@ -501,7 +516,7 @@ class SyntacticChunker:
             if n.type in call_types:
                 func_node = n.child_by_field_name("function")
                 if func_node:
-                    name = source[func_node.start_byte:func_node.end_byte]
+                    name = source[func_node.start_byte : func_node.end_byte]
                     # Simplify: "self.method" → "method", "module.func" → "func"
                     clean_name = name.rsplit(".", 1)[-1].strip()
                     if clean_name and clean_name.replace("_", "").isalnum():
@@ -512,9 +527,7 @@ class SyntacticChunker:
         walk(node)
         return list(dict.fromkeys(calls))  # Dedupe preserving order
 
-    def _extract_import_names(
-        self, root: Any, source: str, language: str, start: int, end: int
-    ) -> list[str]:
+    def _extract_import_names(self, root: Any, source: str, language: str, start: int, end: int) -> list[str]:
         """Extract imported module names from import statements in a line range."""
         names: list[str] = []
 
@@ -526,28 +539,28 @@ class SyntacticChunker:
                 if n.type in {"import_from_statement", "import_statement"}:
                     for child in n.children:
                         if child.type == "dotted_name":
-                            names.append(source[child.start_byte:child.end_byte])
+                            names.append(source[child.start_byte : child.end_byte])
                             break
 
             elif language in {"javascript", "typescript", "tsx"}:
                 if n.type == "import_statement":
                     for child in n.children:
                         if child.type == "string":
-                            text = source[child.start_byte:child.end_byte].strip("\"'")
+                            text = source[child.start_byte : child.end_byte].strip("\"'")
                             names.append(text)
 
             elif language == "go":
                 if n.type == "import_spec":
                     for child in n.children:
                         if child.type == "interpreted_string_literal":
-                            text = source[child.start_byte:child.end_byte].strip('"')
+                            text = source[child.start_byte : child.end_byte].strip('"')
                             names.append(text)
 
             elif language == "rust":
                 if n.type == "use_declaration":
                     arg = n.child_by_field_name("argument")
                     if arg:
-                        names.append(source[arg.start_byte:arg.end_byte])
+                        names.append(source[arg.start_byte : arg.end_byte])
 
             for child in n.children:
                 walk(child)

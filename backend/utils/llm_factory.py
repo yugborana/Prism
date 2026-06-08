@@ -21,11 +21,13 @@ logger = get_logger(__name__)
 # Global cache for the embedding model to avoid reloading on every request
 _embedding_model = None
 
+
 def _get_embedding_model():
     global _embedding_model
     if _embedding_model is None:
         # Lazy load to avoid memory overhead on startup
         from sentence_transformers import SentenceTransformer
+
         logger.info("loading_sentence_transformers_model", model=settings.embedding_model)
         _embedding_model = SentenceTransformer(settings.embedding_model)
     return _embedding_model
@@ -83,13 +85,13 @@ class LLMClient:
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
-                
-                if hasattr(response, 'usage') and response.usage:
+
+                if hasattr(response, "usage") and response.usage:
                     tracker.record_tokens(
                         input_tokens=response.usage.prompt_tokens,
                         output_tokens=response.usage.completion_tokens,
                     )
-                    
+
                 return response.choices[0].message.content
             except Exception as e:
                 logger.error(
@@ -115,7 +117,7 @@ class LLMClient:
                 model = await asyncio.to_thread(_get_embedding_model)
             else:
                 model = _embedding_model
-            
+
             # encode is synchronous, run it in a thread pool
             embedding = await asyncio.to_thread(model.encode, text)
             return embedding.tolist()
@@ -135,9 +137,7 @@ class LLMClient:
             return []
 
         # Filter blanks but remember positions so we can reassemble
-        non_empty: list[tuple[int, str]] = [
-            (i, t) for i, t in enumerate(texts) if t and t.strip()
-        ]
+        non_empty: list[tuple[int, str]] = [(i, t) for i, t in enumerate(texts) if t and t.strip()]
 
         if not non_empty:
             return [[0.0] * settings.embedding_dim for _ in texts]

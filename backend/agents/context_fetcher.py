@@ -33,20 +33,12 @@ async def context_fetcher_agent(state: ReviewState) -> dict[str, Any]:
         retriever = VectorRetriever()
 
         # Run Qdrant queries in threads (they're blocking SDK calls)
-        code_graphs = await asyncio.to_thread(
-            retriever.get_code_graphs_by_files, changed_files
-        )
-        import_files = await asyncio.to_thread(
-            retriever.get_import_files_by_files, changed_files
-        )
-        learnings = await asyncio.to_thread(
-            retriever.get_related_learnings, limit=5
-        )
+        code_graphs = await asyncio.to_thread(retriever.get_code_graphs_by_files, changed_files)
+        import_files = await asyncio.to_thread(retriever.get_import_files_by_files, changed_files)
+        learnings = await asyncio.to_thread(retriever.get_related_learnings, limit=5)
 
         # Format everything into a single context string for the AI agents
-        comprehensive_context = retriever.format_for_ai(
-            code_graphs, import_files, learnings
-        )
+        comprehensive_context = retriever.format_for_ai(code_graphs, import_files, learnings)
 
         # ── Cross-file context from repo symbol index (Cursor pattern) ──
         # Only query if the repo has been indexed (non-blocking: first PR
@@ -70,10 +62,7 @@ async def context_fetcher_agent(state: ReviewState) -> dict[str, Any]:
                 logger.warning("cross_file_context_failed", error=str(xf_err))
                 cross_file_context = ""
         else:
-            cross_file_context = (
-                "(Repo index building in background — "
-                "cross-file context will be available on next PR)"
-            )
+            cross_file_context = "(Repo index building in background — cross-file context will be available on next PR)"
 
         logger.info(
             "context_fetched",

@@ -30,18 +30,25 @@ Info = None
 # ── No-Op Fallback ────────────────────────────────────────────────────────
 class _NoOpMetric:
     """Stub metric when prometheus_client is absent."""
+
     def labels(self, **kwargs):
         return self
+
     def inc(self, amount=1):
         pass
+
     def dec(self, amount=1):
         pass
+
     def set(self, value):
         pass
+
     def observe(self, value):
         pass
+
     def time(self):
         return _NoOpCtx()
+
     def info(self, val):
         pass
 
@@ -49,6 +56,7 @@ class _NoOpMetric:
 class _NoOpCtx:
     def __enter__(self):
         return self
+
     def __exit__(self, *args):
         pass
 
@@ -82,7 +90,7 @@ reviews_in_flight = _metric(
     Gauge,
     "prism_reviews_in_flight",
     "Number of reviews currently being processed",
-    multiprocess_mode='livesum',
+    multiprocess_mode="livesum",
 )
 
 findings_total = _metric(
@@ -130,7 +138,7 @@ agent_tasks_in_flight = _metric(
     "prism_agent_tasks_in_flight",
     "Number of agent tasks currently running",
     ["agent"],
-    multiprocess_mode='livesum',
+    multiprocess_mode="livesum",
 )
 
 
@@ -202,7 +210,7 @@ dlq_depth = _metric(
     Gauge,
     "prism_dlq_depth",
     "Current number of messages in the Dead Letter Queue",
-    multiprocess_mode='max',
+    multiprocess_mode="max",
 )
 
 celery_task_retries_total = _metric(
@@ -261,12 +269,7 @@ def track_review(repo: str):
         reviews_in_flight.dec()
         review_total.labels(repo=repo, status=status).inc()
         review_duration_seconds.labels(repo=repo).observe(duration)
-        logger.info(
-            "review_completed",
-            repo=repo,
-            status=status,
-            duration_seconds=round(duration, 2)
-        )
+        logger.info("review_completed", repo=repo, status=status, duration_seconds=round(duration, 2))
 
 
 @contextmanager
@@ -286,12 +289,7 @@ def track_agent_task(agent: str):
         agent_tasks_in_flight.labels(agent=agent).dec()
         agent_task_total.labels(agent=agent, status=status).inc()
         agent_task_duration_seconds.labels(agent=agent).observe(duration)
-        logger.info(
-            "agent_task_completed",
-            agent=agent,
-            status=status,
-            duration_seconds=round(duration, 2)
-        )
+        logger.info("agent_task_completed", agent=agent, status=status, duration_seconds=round(duration, 2))
 
 
 @contextmanager
@@ -313,13 +311,7 @@ def track_llm_call(agent: str, model: str):
         raise
     finally:
         duration = time.monotonic() - start
-        logger.info(
-            "llm_call_completed",
-            agent=agent,
-            model=model,
-            status=status,
-            duration_seconds=round(duration, 2)
-        )
+        logger.info("llm_call_completed", agent=agent, model=model, status=status, duration_seconds=round(duration, 2))
 
 
 @contextmanager
@@ -339,4 +331,3 @@ def track_indexing_task(task_type: str):
 
 
 # Metrics migrated to CloudWatch Logs.
-

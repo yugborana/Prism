@@ -33,8 +33,10 @@ router = APIRouter()
 
 # ── Request/Response Models ──────────────────────────────────────────────
 
+
 class AnalyzeRequest(BaseModel):
     """Request to analyze a PR for dashboard or alert suggestions."""
+
     repo: str = Field(description="Full repository name (owner/repo)")
     pr_number: int = Field(description="PR number to analyze")
     installation_id: int | None = Field(default=None, description="GitHub App installation ID (optional for local dev)")
@@ -42,6 +44,7 @@ class AnalyzeRequest(BaseModel):
 
 class CreateDashboardRequest(BaseModel):
     """Request to create a specific dashboard."""
+
     name: str = Field(description="Dashboard name")
     type: str = Field(default="grafana", description="grafana, datadog, or amplitude")
     priority: str = Field(default="Medium")
@@ -52,6 +55,7 @@ class CreateDashboardRequest(BaseModel):
 
 class CreateAlertRequest(BaseModel):
     """Request to create a specific alert."""
+
     name: str = Field(description="Alert name")
     type: str = Field(default="prometheus", description="prometheus or datadog")
     priority: str = Field(default="P1")
@@ -66,6 +70,7 @@ class CreateAlertRequest(BaseModel):
 
 
 # ── Dashboard Endpoints ──────────────────────────────────────────────────
+
 
 @router.post("/dashboards/analyze")
 async def analyze_dashboards(request: AnalyzeRequest, _=Depends(require_api_key)) -> dict[str, Any]:
@@ -94,6 +99,7 @@ async def analyze_dashboards(request: AnalyzeRequest, _=Depends(require_api_key)
 
         # Populate context so the agent has full repo awareness
         from agents.context_fetcher import context_fetcher_agent
+
         ctx_updates = await context_fetcher_agent(state)
         for k, v in ctx_updates.items():
             if hasattr(state, k):
@@ -107,9 +113,7 @@ async def analyze_dashboards(request: AnalyzeRequest, _=Depends(require_api_key)
         suggestions = result.get("suggestions", [])
         if suggestions:
             comment_service = CommentService(installation_id=request.installation_id)
-            await comment_service.post_dashboard_suggestions(
-                request.repo, request.pr_number, suggestions
-            )
+            await comment_service.post_dashboard_suggestions(request.repo, request.pr_number, suggestions)
 
         logger.info(
             "dashboard_analysis_complete",
@@ -150,6 +154,7 @@ async def create_dashboard(request: CreateDashboardRequest, _=Depends(require_ap
 
 # ── Alert Endpoints ──────────────────────────────────────────────────────
 
+
 @router.post("/alerts/analyze")
 async def analyze_alerts(request: AnalyzeRequest, _=Depends(require_api_key)) -> dict[str, Any]:
     """
@@ -175,6 +180,7 @@ async def analyze_alerts(request: AnalyzeRequest, _=Depends(require_api_key)) ->
 
         # Populate context so the agent has full repo awareness
         from agents.context_fetcher import context_fetcher_agent
+
         ctx_updates = await context_fetcher_agent(state)
         for k, v in ctx_updates.items():
             if hasattr(state, k):
@@ -186,9 +192,7 @@ async def analyze_alerts(request: AnalyzeRequest, _=Depends(require_api_key)) ->
         suggestions = result.get("suggestions", [])
         if suggestions:
             comment_service = CommentService(installation_id=request.installation_id)
-            await comment_service.post_alert_suggestions(
-                request.repo, request.pr_number, suggestions
-            )
+            await comment_service.post_alert_suggestions(request.repo, request.pr_number, suggestions)
 
         logger.info(
             "alert_analysis_complete",

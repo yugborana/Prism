@@ -16,12 +16,14 @@ from utils.connections import get_httpx_client
 
 logger = get_logger(__name__)
 
+
 def _normalize_filename(name: str) -> str:
     """Convert a name into a safe filename (lowercase, hyphens, no special chars)."""
     name = name.lower().strip()
     name = re.sub(r"[^a-z0-9\s-]", "", name)
     name = re.sub(r"[\s]+", "-", name)
     return name
+
 
 def _build_prometheus_alert_rule(suggestion: dict[str, Any]) -> str:
     """
@@ -43,7 +45,7 @@ def _build_prometheus_alert_rule(suggestion: dict[str, Any]) -> str:
 groups:
   - name: prism-generated-alerts
     rules:
-      - alert: {name.replace(' ', '')}
+      - alert: {name.replace(" ", "")}
         expr: {query}
         for: {duration}
         labels:
@@ -57,6 +59,7 @@ groups:
           notification_channel: "{notification}"
 """
     return rule_yaml
+
 
 class AlertService:
     """Creates alerts in Prometheus and Datadog."""

@@ -33,10 +33,7 @@ TASK_QUEUES = (
 
 
 celery_app = Celery(
-    "prism",
-    broker=settings.redis_url,
-    backend=settings.redis_url,
-    include=["workers.tasks", "workers.indexing_tasks"]
+    "prism", broker=settings.redis_url, backend=settings.redis_url, include=["workers.tasks", "workers.indexing_tasks"]
 )
 
 celery_app.conf.update(
@@ -45,7 +42,6 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
-
     # ── Reliability ───────────────────────────────────────────────────
     # Late ack: message stays in broker until task succeeds/fails
     task_acks_late=True,
@@ -53,18 +49,15 @@ celery_app.conf.update(
     # redelivers it to another worker instead of silently dropping it
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
-
     # ── Queues ────────────────────────────────────────────────────────
     task_queues=TASK_QUEUES,
     task_default_queue="celery",
     task_default_exchange="prism",
     task_default_routing_key="celery",
-
     # ── Limits ────────────────────────────────────────────────────────
     worker_max_tasks_per_child=50,
     task_time_limit=1800,  # 30 minute hard kill
     task_soft_time_limit=1600,  # 26m40s — gives task time to clean up
-
     # ── Task Routing ──────────────────────────────────────────────────
     task_routes={
         "build_repo_index": {"queue": "prism.index"},
@@ -72,7 +65,6 @@ celery_app.conf.update(
         "cleanup_stale_clones": {"queue": "prism.index"},
         "cleanup_stale_indexes": {"queue": "prism.index"},
     },
-
     # ── Beat Schedule (periodic tasks) ────────────────────────────────
     beat_schedule={
         "cleanup-stale-clones-hourly": {
@@ -95,13 +87,14 @@ celery_app.conf.update(
 # OTel: initializes TracerProvider in EACH child process via worker_process_init,
 # because trace context is per-process.
 
+
 @worker_process_init.connect
 def _init_worker_child(**kwargs):
     """Initialize OTel tracing in each child process."""
     try:
         from observability.tracing import init_tracing
         from opentelemetry.instrumentation.celery import CeleryInstrumentor
-        
+
         init_tracing("prism-worker")
         CeleryInstrumentor().instrument()
     except Exception as e:

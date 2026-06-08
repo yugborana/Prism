@@ -19,6 +19,7 @@ from agents.prompts import (
 from agents.reasoning import ReasoningChain, ReasoningStep
 from agents.schemas import AlertReport
 
+
 class AlertAgent(BaseReviewAgent):
     """Generates alert suggestions based on telemetry in the PR diff."""
 

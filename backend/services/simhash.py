@@ -94,9 +94,7 @@ class SimHashIndex:
         except Exception as e:
             logger.error("simhash_store_failed", repo=repo_name, error=str(e))
 
-    async def store_merkle_tree(
-        self, repo_name: str, merkle_tree: MerkleTree
-    ) -> None:
+    async def store_merkle_tree(self, repo_name: str, merkle_tree: MerkleTree) -> None:
         """Store serialized Merkle tree for future diffing."""
         redis = await self._ensure_redis()
         if not redis:
@@ -200,6 +198,7 @@ class SimHashIndex:
             )
 
             import asyncio
+
             # Scroll through all source repo points
             offset = None
             while True:

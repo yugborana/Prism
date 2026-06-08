@@ -34,9 +34,21 @@ SUPPORTED_EXTENSIONS: set[str] = {".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".
 
 # Directories to always skip during tree construction
 SKIP_DIRS: set[str] = {
-    ".git", "node_modules", "__pycache__", "venv", ".venv",
-    "dist", "build", ".tox", ".mypy_cache", ".pytest_cache",
-    ".next", "target", "vendor", ".eggs", "*.egg-info",
+    ".git",
+    "node_modules",
+    "__pycache__",
+    "venv",
+    ".venv",
+    "dist",
+    "build",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".next",
+    "target",
+    "vendor",
+    ".eggs",
+    "*.egg-info",
 }
 
 
@@ -103,9 +115,7 @@ class MerkleTree:
         return cls(root_node)
 
     @classmethod
-    def _build_node(
-        cls, current_path: Path, repo_root: Path, extensions: set[str]
-    ) -> MerkleNode:
+    def _build_node(cls, current_path: Path, repo_root: Path, extensions: set[str]) -> MerkleNode:
         """Recursively build a MerkleNode for a file or directory."""
         relative = str(current_path.relative_to(repo_root)).replace("\\", "/")
         if relative == ".":
@@ -334,10 +344,7 @@ class MerkleTree:
             "d": node.is_dir,
         }
         if node.is_dir and node.children:
-            result["c"] = {
-                name: cls._serialize_node(child)
-                for name, child in node.children.items()
-            }
+            result["c"] = {name: cls._serialize_node(child) for name, child in node.children.items()}
         return result
 
     @classmethod
@@ -350,10 +357,7 @@ class MerkleTree:
     def _deserialize_node(cls, data: dict[str, Any]) -> MerkleNode:
         children: dict[str, MerkleNode] = {}
         if "c" in data:
-            children = {
-                name: cls._deserialize_node(child_data)
-                for name, child_data in data["c"].items()
-            }
+            children = {name: cls._deserialize_node(child_data) for name, child_data in data["c"].items()}
         return MerkleNode(
             path=data["p"],
             hash=data["h"],

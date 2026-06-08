@@ -14,7 +14,6 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 
-
 from agents.reasoning import ReasoningChain
 from agents.schemas import ReviewState
 from observability.logging import get_logger

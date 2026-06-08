@@ -39,6 +39,7 @@ _DELIVERY_TTL = 86400
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
+
 def _verify_signature(payload: bytes, signature_header: str | None) -> bool:
     """Verify that the webhook payload was signed by GitHub.
 
@@ -85,6 +86,7 @@ async def _is_duplicate_delivery(delivery_id: str | None) -> bool:
         return False
 
     from utils.connections import get_redis
+
     redis = get_redis()
     if redis is None:
         # Pool not initialized → skip dedup, allow through (best-effort)
@@ -105,6 +107,7 @@ async def _is_duplicate_delivery(delivery_id: str | None) -> bool:
 
 
 # ── Webhook Endpoint ─────────────────────────────────────────────────────
+
 
 @router.post("/github")
 async def github_webhook(
@@ -144,9 +147,7 @@ async def github_webhook(
                 delivery_id=x_github_delivery,
                 github_event=x_github_event,
             )
-            webhook_requests_total.labels(
-                event_type=x_github_event or "unknown", status="rejected"
-            ).inc()
+            webhook_requests_total.labels(event_type=x_github_event or "unknown", status="rejected").inc()
             raise HTTPException(status_code=401, detail="Invalid signature")
 
         payload = await request.json()
@@ -161,16 +162,12 @@ async def github_webhook(
 
         # ── Route: Pull Request events (opened / synchronized) ────────────
         if x_github_event != "pull_request" or action not in ("opened", "synchronize"):
-            webhook_requests_total.labels(
-                event_type=x_github_event or "unknown", status="ignored"
-            ).inc()
+            webhook_requests_total.labels(event_type=x_github_event or "unknown", status="ignored").inc()
             return {"status": "ignored", "event": x_github_event, "action": action}
 
         # ── Step 3: Idempotency Check ─────────────────────────────────────
         if await _is_duplicate_delivery(x_github_delivery):
-            webhook_requests_total.labels(
-                event_type="pull_request", status="duplicate"
-            ).inc()
+            webhook_requests_total.labels(event_type="pull_request", status="duplicate").inc()
             return {"status": "duplicate", "delivery_id": x_github_delivery}
 
         # ── Step 4: Extract PR metadata (no API calls here!) ──────────────
@@ -186,9 +183,7 @@ async def github_webhook(
             pr=pr_number,
             delivery_id=x_github_delivery,
         )
-        webhook_requests_total.labels(
-            event_type="pull_request", status="accepted"
-        ).inc()
+        webhook_requests_total.labels(event_type="pull_request", status="accepted").inc()
 
         # ── Step 5: Enqueue to Celery immediately ─────────────────────────
         # Pass only the metadata — the Celery worker will fetch the diff
@@ -236,26 +231,20 @@ async def _handle_comment_trigger(
 
     # ── Only respond to the trigger keyword ───────────────────────────
     if _TRIGGER_KEYWORD not in comment_body:
-        webhook_requests_total.labels(
-            event_type="issue_comment", status="ignored"
-        ).inc()
+        webhook_requests_total.labels(event_type="issue_comment", status="ignored").inc()
         return {"status": "ignored", "reason": "no trigger keyword"}
 
     # ── Only handle PR comments (not Issue comments) ──────────────────
     # GitHub includes a `pull_request` key in the issue object only for PRs.
     if "pull_request" not in issue:
-        webhook_requests_total.labels(
-            event_type="issue_comment", status="ignored"
-        ).inc()
+        webhook_requests_total.labels(event_type="issue_comment", status="ignored").inc()
         return {"status": "ignored", "reason": "comment is on an issue, not a PR"}
 
     pr_number = issue["number"]
 
     # ── Idempotency ───────────────────────────────────────────────────
     if await _is_duplicate_delivery(delivery_id):
-        webhook_requests_total.labels(
-            event_type="issue_comment", status="duplicate"
-        ).inc()
+        webhook_requests_total.labels(event_type="issue_comment", status="duplicate").inc()
         return {"status": "duplicate", "delivery_id": delivery_id}
 
     logger.info(
@@ -265,9 +254,7 @@ async def _handle_comment_trigger(
         commenter=payload.get("comment", {}).get("user", {}).get("login", ""),
         delivery_id=delivery_id,
     )
-    webhook_requests_total.labels(
-        event_type="issue_comment", status="accepted"
-    ).inc()
+    webhook_requests_total.labels(event_type="issue_comment", status="accepted").inc()
 
     # ── Enqueue review ────────────────────────────────────────────────
     pr_data = {
@@ -288,6 +275,7 @@ async def _handle_comment_trigger(
 
 
 # ── Manual Test Endpoint ─────────────────────────────────────────────────
+
 
 @router.post("/test-review")
 async def test_review(request: Request, _=Depends(require_api_key)):
@@ -319,6 +307,7 @@ async def test_review(request: Request, _=Depends(require_api_key)):
     ):
         # For test-review, we fetch inline because the caller isn't GitHub
         from services.github_service import GitHubService
+
         github_service = GitHubService(installation_id=installation_id)
 
         diff = await github_service.fetch_pr_diff(repo_name, pr_number)

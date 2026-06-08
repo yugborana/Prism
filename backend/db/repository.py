@@ -60,9 +60,7 @@ class ReviewRepository:
         findings_count: int = 0,
         duration_ms: int = 0,
     ) -> None:
-        result = await self._session.execute(
-            select(ReviewRecord).where(ReviewRecord.review_id == review_id)
-        )
+        result = await self._session.execute(select(ReviewRecord).where(ReviewRecord.review_id == review_id))
         record = result.scalar_one_or_none()
         if record:
             record.status = status
@@ -71,9 +69,7 @@ class ReviewRepository:
             record.completed_at = datetime.now(UTC)
             logger.debug("review_record_completed", review_id=review_id, status=status)
 
-    async def get_reviews_by_repo(
-        self, repo_name: str, limit: int = 20
-    ) -> list[ReviewRecord]:
+    async def get_reviews_by_repo(self, repo_name: str, limit: int = 20) -> list[ReviewRecord]:
         result = await self._session.execute(
             select(ReviewRecord)
             .where(ReviewRecord.repo_name == repo_name)
@@ -84,17 +80,14 @@ class ReviewRepository:
 
     async def get_review_stats(self, repo_name: str) -> dict[str, Any]:
         """Aggregate stats for a repo — useful for dashboards."""
-        total = await self._session.execute(
-            select(func.count()).where(ReviewRecord.repo_name == repo_name)
-        )
+        total = await self._session.execute(select(func.count()).where(ReviewRecord.repo_name == repo_name))
         avg_duration = await self._session.execute(
             select(func.avg(ReviewRecord.duration_ms))
             .where(ReviewRecord.repo_name == repo_name)
             .where(ReviewRecord.status == "completed")
         )
         avg_findings = await self._session.execute(
-            select(func.avg(ReviewRecord.findings_count))
-            .where(ReviewRecord.repo_name == repo_name)
+            select(func.avg(ReviewRecord.findings_count)).where(ReviewRecord.repo_name == repo_name)
         )
         return {
             "total_reviews": total.scalar() or 0,
@@ -104,21 +97,21 @@ class ReviewRepository:
 
     # ── Decisions ─────────────────────────────────────────────────────
 
-    async def save_decisions(
-        self, db_review_id, decisions: list[dict[str, Any]]
-    ) -> int:
+    async def save_decisions(self, db_review_id, decisions: list[dict[str, Any]]) -> int:
         """Bulk-insert decision log entries."""
         records = []
         for d in decisions:
-            records.append(DecisionRecord_DB(
-                review_id=db_review_id,
-                agent_role=d.get("agent", ""),
-                decision_type=d.get("type", ""),
-                description=d.get("description", "")[:500],
-                rationale=d.get("rationale", "")[:500],
-                confidence=d.get("confidence", 1.0),
-                metadata_json=d.get("metadata", {}),
-            ))
+            records.append(
+                DecisionRecord_DB(
+                    review_id=db_review_id,
+                    agent_role=d.get("agent", ""),
+                    decision_type=d.get("type", ""),
+                    description=d.get("description", "")[:500],
+                    rationale=d.get("rationale", "")[:500],
+                    confidence=d.get("confidence", 1.0),
+                    metadata_json=d.get("metadata", {}),
+                )
+            )
         self._session.add_all(records)
         await self._session.flush()
         logger.debug("decisions_saved", count=len(records))
@@ -126,22 +119,22 @@ class ReviewRepository:
 
     # ── Findings ──────────────────────────────────────────────────────
 
-    async def save_findings(
-        self, db_review_id, findings: list[dict[str, Any]]
-    ) -> int:
+    async def save_findings(self, db_review_id, findings: list[dict[str, Any]]) -> int:
         """Bulk-insert agent findings."""
         records = []
         for f in findings:
-            records.append(FindingRecord(
-                review_id=db_review_id,
-                agent_role=f.get("agent", ""),
-                severity=f.get("severity", "info"),
-                file_path=f.get("file_path", ""),
-                line_number=f.get("line_number"),
-                title=f.get("category", f.get("title", "")),
-                description=f.get("description", "")[:2000],
-                suggestion=f.get("suggested_fix", f.get("suggestion", ""))[:2000],
-            ))
+            records.append(
+                FindingRecord(
+                    review_id=db_review_id,
+                    agent_role=f.get("agent", ""),
+                    severity=f.get("severity", "info"),
+                    file_path=f.get("file_path", ""),
+                    line_number=f.get("line_number"),
+                    title=f.get("category", f.get("title", "")),
+                    description=f.get("description", "")[:2000],
+                    suggestion=f.get("suggested_fix", f.get("suggestion", ""))[:2000],
+                )
+            )
         self._session.add_all(records)
         await self._session.flush()
         logger.debug("findings_saved", count=len(records))

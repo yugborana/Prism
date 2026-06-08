@@ -1,7 +1,7 @@
 """
 Prism Pydantic V2 Output Schemas for Review Agents.
 
-Purpose: Replace fragile regex-based output parsing with structured, 
+Purpose: Replace fragile regex-based output parsing with structured,
          validated Pydantic models.
 
 Every review agent outputs a typed report. The Aggregator receives validated objects
@@ -16,34 +16,44 @@ from pydantic import BaseModel, Field
 
 # ── Severity Levels ──────────────────────────────────────────────────────
 
+
 class Severity(str, Enum):
     """Issue severity levels, ordered from most to least critical."""
+
     CRITICAL = "CRITICAL"
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
     LOW = "LOW"
     INFO = "INFO"
 
+
 class ReviewEvent(str, Enum):
     """GitHub PR review event type."""
+
     COMMENT = "COMMENT"
     APPROVE = "APPROVE"
     REQUEST_CHANGES = "REQUEST_CHANGES"
 
+
 # ── Agent Status ─────────────────────────────────────────────────────────
+
 
 class AgentStatus(str, Enum):
     """Tracks each agent's execution state in the review pipeline."""
+
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
 
+
 # ── Individual Finding ───────────────────────────────────────────────────
+
 
 class CodeFinding(BaseModel):
     """A single issue found by a review agent."""
+
     file_path: str = Field(description="Relative path of the file (e.g., 'src/utils/auth.py')")
     line_number: int = Field(ge=1, description="Line number where the issue occurs")
     severity: Severity = Field(description="Issue severity")
@@ -53,48 +63,68 @@ class CodeFinding(BaseModel):
     suggested_fix: str | None = Field(default=None, description="Suggested code replacement")
     confidence: float = Field(default=0.8, ge=0.0, le=1.0, description="Confidence score (0-1)")
 
+
 # ── Agent-Specific Reports ───────────────────────────────────────────────
+
 
 class SecurityReport(BaseModel):
     """Output schema for the Security Review Agent."""
+
     findings: list[CodeFinding] = Field(default_factory=list)
     summary: str = Field(min_length=10, max_length=1000, description="Executive summary of security analysis")
-    owasp_categories_detected: list[str] = Field(default_factory=list, description="e.g., ['A03:2021-Injection', 'A07:2021-Auth']")
+    owasp_categories_detected: list[str] = Field(
+        default_factory=list, description="e.g., ['A03:2021-Injection', 'A07:2021-Auth']"
+    )
     risk_level: Severity = Field(default=Severity.LOW, description="Overall security risk level")
+
 
 class QualityReport(BaseModel):
     """Output schema for the Code Quality Review Agent."""
+
     findings: list[CodeFinding] = Field(default_factory=list)
     summary: str = Field(min_length=10, max_length=1000, description="Executive summary of quality analysis")
     code_smells_count: int = Field(default=0, ge=0)
     design_patterns_violated: list[str] = Field(default_factory=list, description="e.g., ['SRP', 'DRY', 'KISS']")
     maintainability_score: float = Field(default=8.0, ge=0.0, le=10.0, description="Maintainability score (0-10)")
 
+
 class PerformanceReport(BaseModel):
     """Output schema for the Performance Review Agent."""
+
     findings: list[CodeFinding] = Field(default_factory=list)
     summary: str = Field(min_length=10, max_length=1000, description="Executive summary of performance analysis")
     hotspots: list[str] = Field(default_factory=list, description="Files/functions with performance concerns")
     estimated_impact: Severity = Field(default=Severity.LOW, description="Overall performance impact")
 
+
 class TelemetryCoverage(BaseModel):
     """Coverage levels for each telemetry type."""
+
     spans: str = Field(default="none", description="OTel span coverage: none|partial|good")
     logging: str = Field(default="none", description="Logging coverage: none|partial|good")
     metrics: str = Field(default="none", description="Metrics coverage: none|partial|good")
     events: str = Field(default="none", description="Event tracking coverage: none|partial|good")
 
+
 class ObservabilityReport(BaseModel):
     """Output schema for the Observability Instrumentation Agent."""
+
     findings: list[CodeFinding] = Field(default_factory=list)
     summary: str = Field(min_length=10, max_length=1000, description="Executive summary of observability analysis")
-    telemetry_coverage: TelemetryCoverage = Field(default_factory=TelemetryCoverage, description="Coverage breakdown by telemetry type")
-    instrumentation_score: float = Field(default=5.0, ge=0.0, le=10.0, description="Instrumentation completeness score (0-10)")
+    telemetry_coverage: TelemetryCoverage = Field(
+        default_factory=TelemetryCoverage, description="Coverage breakdown by telemetry type"
+    )
+    instrumentation_score: float = Field(
+        default=5.0, ge=0.0, le=10.0, description="Instrumentation completeness score (0-10)"
+    )
+
 
 # ── Dashboard & Alert Schemas ────────────
 
+
 class DashboardSuggestion(BaseModel):
     """A single dashboard suggestion generated by the Dashboard Agent."""
+
     name: str = Field(description="Dashboard name")
     type: str = Field(description="Platform type: grafana, datadog, or amplitude")
     priority: str = Field(default="Medium", description="Priority: High, Medium, or Low")
@@ -102,13 +132,17 @@ class DashboardSuggestion(BaseModel):
     panels: str = Field(default="[]", description="JSON string of panel definitions")
     alerts: str = Field(default="[]", description="JSON string of alert definitions")
 
+
 class DashboardReport(BaseModel):
     """Output schema for the Dashboard Generation Agent."""
+
     suggestions: list[DashboardSuggestion] = Field(default_factory=list)
     summary: str = Field(min_length=10, max_length=2000, description="Summary of dashboard suggestions")
 
+
 class AlertSuggestion(BaseModel):
     """A single alert suggestion generated by the Alert Agent."""
+
     name: str = Field(description="Alert name")
     type: str = Field(description="Platform type: prometheus or datadog")
     priority: str = Field(default="P1", description="Priority: P0, P1, or P2")
@@ -119,27 +153,36 @@ class AlertSuggestion(BaseModel):
     notification: str = Field(default="", description="Notification channel (e.g., slack-sre-channel)")
     runbook_link: str = Field(default="", description="Link to runbook for this alert")
 
+
 class AlertReport(BaseModel):
     """Output schema for the Alert Generation Agent."""
+
     suggestions: list[AlertSuggestion] = Field(default_factory=list)
     summary: str = Field(min_length=10, max_length=2000, description="Summary of alert suggestions")
 
+
 # ── Aggregated Review ────────────────────────────────────────────────────
+
 
 class InlineComment(BaseModel):
     """A single inline comment to post on the GitHub PR."""
+
     path: str = Field(description="File path relative to repo root")
     line: int = Field(ge=1, description="Line number in the diff")
     body: str = Field(description="Comment body (markdown)")
     suggestion: str | None = Field(default=None, description="Code suggestion block")
+
 
 class AggregatedReview(BaseModel):
     """
     Final output of the review pipeline.
     This is what gets posted to GitHub as a PR review.
     """
+
     summary_comment: str = Field(description="Main review comment posted as PR body")
-    inline_comments: list[InlineComment] = Field(default_factory=list, description="Inline suggestions on specific lines")
+    inline_comments: list[InlineComment] = Field(
+        default_factory=list, description="Inline suggestions on specific lines"
+    )
     total_issues: int = Field(default=0, ge=0, description="Total issues found across all agents")
     critical_count: int = Field(default=0, ge=0)
     high_count: int = Field(default=0, ge=0)
@@ -153,13 +196,16 @@ class AggregatedReview(BaseModel):
     performance_report: PerformanceReport | None = None
     observability_report: ObservabilityReport | None = None
 
+
 # ── Review Pipeline State ────────────────────────────────────────────────
+
 
 class ReviewState(BaseModel):
     """
     Shared state passed through the review pipeline.
     Replaces legacy CodeReviewState TypedDict with a validated Pydantic model.
     """
+
     # Input data
     pr_title: str = ""
     pr_description: str = ""
@@ -171,8 +217,8 @@ class ReviewState(BaseModel):
 
     # Context (populated by ContextFetcher)
     comprehensive_context: str = ""
-    cross_file_context: str = ""      # Cross-file callers/dependents from repo index
-    has_repo_index: bool = False       # Whether the repo has been indexed in Qdrant
+    cross_file_context: str = ""  # Cross-file callers/dependents from repo index
+    has_repo_index: bool = False  # Whether the repo has been indexed in Qdrant
     code_graphs: list[dict] = Field(default_factory=list)
     import_files: list[dict] = Field(default_factory=list)
     learnings: list[dict] = Field(default_factory=list)
@@ -198,4 +244,3 @@ class ReviewState(BaseModel):
     final_review: AggregatedReview | None = None
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-

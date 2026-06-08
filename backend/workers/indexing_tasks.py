@@ -52,9 +52,7 @@ def build_repo_index(
 
         manager = IndexManager()
         with track_indexing_task("full"):
-            stats = loop.run_until_complete(
-                manager.build_full_index(repo_name, base_branch, installation_id)
-            )
+            stats = loop.run_until_complete(manager.build_full_index(repo_name, base_branch, installation_id))
         loop.run_until_complete(manager.close())
 
         result = {
@@ -111,9 +109,7 @@ def refresh_repo_index(
 
         manager = IndexManager()
         with track_indexing_task("refresh"):
-            stats = loop.run_until_complete(
-                manager.refresh_index(repo_name, base_branch, installation_id)
-            )
+            stats = loop.run_until_complete(manager.refresh_index(repo_name, base_branch, installation_id))
         loop.run_until_complete(manager.close())
 
         result = {
@@ -166,9 +162,7 @@ def cleanup_stale_indexes() -> dict:
 
         manager = IndexManager()
         with track_indexing_task("cleanup"):
-            cleaned = loop.run_until_complete(
-                manager.cleanup_stale_indexes(max_age_days=30)
-            )
+            cleaned = loop.run_until_complete(manager.cleanup_stale_indexes(max_age_days=30))
         loop.run_until_complete(manager.close())
         return {"repos_cleaned": cleaned}
     finally:

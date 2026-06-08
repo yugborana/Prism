@@ -169,10 +169,9 @@ def process_pr_review(self, pr_data: dict[str, Any]):
             # gets cross-file context from the repo_chunks collection.
             try:
                 from services.simhash import SimHashIndex
+
                 simhash_idx = SimHashIndex()
-                index_status = loop.run_until_complete(
-                    simhash_idx.check_index_status(pr_data.get("repo_name", ""))
-                )
+                index_status = loop.run_until_complete(simhash_idx.check_index_status(pr_data.get("repo_name", "")))
                 loop.run_until_complete(simhash_idx.close())
 
                 if index_status == "fresh":

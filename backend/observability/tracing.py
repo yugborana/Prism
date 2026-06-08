@@ -48,10 +48,12 @@ def init_tracing(service_name: str = "prism") -> None:
 
     from utils.config import settings
 
-    resource = Resource.create({
-        SERVICE_NAME: service_name,
-        "deployment.environment": settings.environment,
-    })
+    resource = Resource.create(
+        {
+            SERVICE_NAME: service_name,
+            "deployment.environment": settings.environment,
+        }
+    )
 
     provider = TracerProvider(resource=resource)
 
@@ -77,10 +79,12 @@ def init_tracing(service_name: str = "prism") -> None:
     # ── W3C Trace Context propagation ─────────────────────────────────
     # Ensures trace context flows through HTTP headers and Celery messages.
     set_global_textmap(
-        CompositePropagator([
-            TraceContextTextMapPropagator(),
-            W3CBaggagePropagator(),
-        ])
+        CompositePropagator(
+            [
+                TraceContextTextMapPropagator(),
+                W3CBaggagePropagator(),
+            ]
+        )
     )
 
     _initialized = True

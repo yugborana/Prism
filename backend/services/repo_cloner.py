@@ -72,9 +72,7 @@ class RepoCloner:
         if redis:
             try:
                 # Try to acquire lock with NX (set-if-not-exists)
-                lock_acquired = await redis.set(
-                    lock_key, "1", ex=CLONE_LOCK_TTL, nx=True
-                )
+                lock_acquired = await redis.set(lock_key, "1", ex=CLONE_LOCK_TTL, nx=True)
 
                 if not lock_acquired:
                     # Another worker is cloning — wait for it
@@ -137,9 +135,7 @@ class RepoCloner:
 
         return f"https://github.com/{repo_name}.git"
 
-    async def _shallow_clone(
-        self, clone_url: str, repo_dir: Path, branch: str
-    ) -> None:
+    async def _shallow_clone(self, clone_url: str, repo_dir: Path, branch: str) -> None:
         """Perform a shallow clone of a specific branch."""
         # Ensure parent directory exists
         repo_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -154,10 +150,13 @@ class RepoCloner:
         logger.info("clone_starting", repo=safe_url, branch=branch)
 
         process = await asyncio.create_subprocess_exec(
-            "git", "clone",
-            "--depth", "1",
+            "git",
+            "clone",
+            "--depth",
+            "1",
             "--single-branch",
-            "--branch", branch,
+            "--branch",
+            branch,
             "--quiet",
             clone_url,
             str(repo_dir),
@@ -184,7 +183,13 @@ class RepoCloner:
 
         # git fetch origin <branch>
         process = await asyncio.create_subprocess_exec(
-            "git", "fetch", "origin", branch, "--depth", "1", "--quiet",
+            "git",
+            "fetch",
+            "origin",
+            branch,
+            "--depth",
+            "1",
+            "--quiet",
             cwd=str(repo_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -199,7 +204,10 @@ class RepoCloner:
 
         # git reset --hard FETCH_HEAD
         process = await asyncio.create_subprocess_exec(
-            "git", "reset", "--hard", "FETCH_HEAD",
+            "git",
+            "reset",
+            "--hard",
+            "FETCH_HEAD",
             cwd=str(repo_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

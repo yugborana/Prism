@@ -39,7 +39,7 @@ class SimpleASTParser:
             raise ValueError(f"Unsupported language: {language}")
 
         lang_module = LANGUAGE_MODULES[language]
-        
+
         if language == "typescript":
             # tree_sitter_typescript has language_typescript() and language_tsx()
             self.language = Language(lang_module.language_typescript())
@@ -47,7 +47,7 @@ class SimpleASTParser:
             self.language = Language(lang_module.language_tsx())
         else:
             self.language = Language(lang_module.language())
-            
+
         self.parser = Parser(self.language)
         self.lang_name = language
 
@@ -90,10 +90,7 @@ class SimpleASTParser:
                         }
                     )
 
-            elif (
-                self.lang_name in ("javascript", "typescript", "tsx")
-                and node.type == "function_declaration"
-            ):
+            elif self.lang_name in ("javascript", "typescript", "tsx") and node.type == "function_declaration":
                 name_node = node.child_by_field_name("name")
                 if name_node:
                     name = node_text(name_node)
@@ -202,10 +199,7 @@ class SimpleASTParser:
                         }
                     )
 
-            elif (
-                self.lang_name in ("javascript", "typescript", "tsx")
-                and node.type == "class_declaration"
-            ):
+            elif self.lang_name in ("javascript", "typescript", "tsx") and node.type == "class_declaration":
                 name_node = node.child_by_field_name("name")
                 if name_node:
                     name = node_text(name_node)
@@ -355,9 +349,7 @@ class SimpleASTParser:
         walk(tree.root_node)
         return imports
 
-    def extract_semantic_analysis(
-        self, tree, source_code: str, file_path: str
-    ) -> Dict[str, Any]:
+    def extract_semantic_analysis(self, tree, source_code: str, file_path: str) -> Dict[str, Any]:
         return {
             "file_path": file_path,
             "language": self.lang_name,

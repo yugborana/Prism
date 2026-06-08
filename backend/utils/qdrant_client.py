@@ -25,6 +25,7 @@ class _NoOpQdrantClient:
 
     def __getattr__(self, name: str) -> Any:
         """Return a no-op callable for any method."""
+
         def noop(*args: Any, **kwargs: Any) -> Any:
             logger.debug("qdrant_noop_called", method=name)
             # Return sensible defaults for common methods
@@ -41,11 +42,13 @@ class _NoOpQdrantClient:
             if name == "create_payload_index":
                 return None
             return None
+
         return noop
 
 
 class _FakeCollections:
     """Fake response for get_collections() in NoOp mode."""
+
     def __init__(self) -> None:
         self.collections: list[Any] = []
 

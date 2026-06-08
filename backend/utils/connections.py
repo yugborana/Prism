@@ -34,6 +34,7 @@ _httpx_client: httpx.AsyncClient | None = None
 
 # ── Redis Pool ───────────────────────────────────────────────────────────
 
+
 async def init_redis_pool() -> None:
     """Initialize the shared async Redis connection pool.
 
@@ -87,6 +88,7 @@ def get_redis() -> aioredis.Redis | None:
     # Lazy init for non-FastAPI contexts (Celery workers)
     try:
         from utils.config import settings
+
         pool = aioredis.ConnectionPool.from_url(
             settings.redis_url,
             decode_responses=True,
@@ -107,6 +109,7 @@ def get_redis() -> aioredis.Redis | None:
 
 
 # ── httpx Client ─────────────────────────────────────────────────────────
+
 
 async def init_httpx_client() -> None:
     """Initialize the shared httpx.AsyncClient with connection pooling.
@@ -162,6 +165,7 @@ def get_httpx_client() -> httpx.AsyncClient:
 
     # Create a persistent fallback for Celery workers (created once, reused)
     from utils.config import settings
+
     _httpx_fallback = httpx.AsyncClient(
         limits=httpx.Limits(
             max_connections=settings.httpx_max_connections,
