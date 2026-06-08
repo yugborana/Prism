@@ -147,6 +147,7 @@ class Settings(BaseSettings):
                 def get_param(name):
                     return client.get_parameter(Name=name, WithDecryption=True)["Parameter"]["Value"]
 
+                os.environ["GITHUB_APP_ID"] = get_param("/prism/github_app_id")
                 os.environ["GITHUB_WEBHOOK_SECRET"] = get_param("/prism/webhook_secret")
                 os.environ["GITHUB_APP_PRIVATE_KEY"] = get_param("/prism/github_app_private_key")
                 os.environ["GROQ_API_KEY"] = get_param("/prism/groq_api_key")
