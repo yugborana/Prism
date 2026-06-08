@@ -33,8 +33,6 @@ from workers.celery_app import celery_app
 from orchestrator.engine import ReviewOrchestrator
 from services.github_service import GitHubService
 from services.comment_service import CommentService
-from agents.dashboard_agent import DashboardAgent
-from agents.alert_agent import AlertAgent
 from utils.config import settings
 from observability.logging import get_logger, bind_correlation_id, clear_correlation_context
 from observability.metrics import dlq_tasks_total, dlq_depth, review_e2e_seconds, celery_task_retries_total
@@ -241,36 +239,6 @@ def process_pr_review(self, pr_data: dict[str, Any]):
                 except Exception as post_err:
                     logger.error("github_post_review_failed", review_id=review_id, error=str(post_err))
 
-                # Post dashboard/alert suggestions if observability found issues
-                try:
-                    comment_svc = CommentService(installation_id=pr_data.get("installation_id"))
-                    repo = result_state.repo_full_name
-                    pr_num = result_state.pr_number
-
-                    # Run Dashboard Agent and post suggestions
-                    try:
-                        dashboard_agent = DashboardAgent()
-                        dash_result = _run_async(dashboard_agent.run(result_state))
-                        dash_suggestions = dash_result.get("suggestions", [])
-                        if dash_suggestions:
-                            _run_async(comment_svc.post_dashboard_suggestions(repo, pr_num, dash_suggestions))
-                            logger.info("dashboard_suggestions_posted", count=len(dash_suggestions))
-                    except Exception as dash_err:
-                        logger.warning("dashboard_suggestions_failed", error=str(dash_err))
-
-                    # Run Alert Agent and post suggestions
-                    try:
-                        alert_agent = AlertAgent()
-                        alert_result = _run_async(alert_agent.run(result_state))
-                        alert_suggestions = alert_result.get("suggestions", [])
-                        if alert_suggestions:
-                            _run_async(comment_svc.post_alert_suggestions(repo, pr_num, alert_suggestions))
-                            logger.info("alert_suggestions_posted", count=len(alert_suggestions))
-                    except Exception as alert_err:
-                        logger.warning("alert_suggestions_failed", error=str(alert_err))
-
-                except Exception as suggestion_err:
-                    logger.warning("suggestion_posting_failed", error=str(suggestion_err))
 
             else:
                 logger.warning("no_final_review_available_to_post", review_id=review_id)

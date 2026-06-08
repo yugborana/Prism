@@ -12,7 +12,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from observability.logging import configure_logging, get_logger
 from utils.config import settings
 from api.webhook import router as webhook_router
-from api.monitoring import router as monitoring_router
 from api.dlq import router as dlq_router
 
 # Configure logging FIRST — before any other imports that might log
@@ -119,7 +118,6 @@ app.add_middleware(
 
 # ── Routes ──────────────────────────────────────────────────────────────
 app.include_router(webhook_router, prefix="/api/v1")
-app.include_router(monitoring_router, prefix="/api/v1")
 app.include_router(dlq_router, prefix="/api/v1")
 
 

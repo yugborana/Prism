@@ -1,9 +1,8 @@
-# Prism Comment Trigger — Re-run review or trigger specific analysis via PR comments
+# Prism Comment Trigger — Re-run review via PR comments
 #
 # Supported commands (post as a PR comment):
-#   prism check       — Re-run the full code review
-#   prism dashboard   — Analyze and suggest dashboards
-#   prism alerts      — Analyze and suggest alerts
+#   /prism-review    — Re-run the full code review (handled by webhook)
+#   prism check      — Re-run via GitHub Actions (CI fallback)
 #
 # Two modes:
 #   1. Deployed Backend: Set PRISM_API_URL as a repository *variable*
@@ -50,34 +49,6 @@ jobs:
             -H "X-API-Key: $PRISM_API_KEY" \
             -d '{"repo": "${{ github.repository }}", "pr_number": ${{ steps.get_pr_number.outputs.pr_number }}}'
           echo "✅ Review queued on deployed backend"
-        continue-on-error: true
-
-      - name: Trigger Dashboard via Deployed Backend
-        if: vars.PRISM_API_URL != '' && contains(github.event.comment.body, 'prism dashboard')
-        env:
-          PRISM_API_URL: ${{ vars.PRISM_API_URL }}
-          PRISM_API_KEY: ${{ secrets.PRISM_API_KEY }}
-        run: |
-          echo "📊 Triggering 'prism dashboard' via deployed backend"
-          curl -sf -X POST "$PRISM_API_URL/api/v1/webhooks/test-review" \
-            -H "Content-Type: application/json" \
-            -H "X-API-Key: $PRISM_API_KEY" \
-            -d '{"repo": "${{ github.repository }}", "pr_number": ${{ steps.get_pr_number.outputs.pr_number }}}'
-          echo "✅ Dashboard analysis queued on deployed backend"
-        continue-on-error: true
-
-      - name: Trigger Alerts via Deployed Backend
-        if: vars.PRISM_API_URL != '' && contains(github.event.comment.body, 'prism alerts')
-        env:
-          PRISM_API_URL: ${{ vars.PRISM_API_URL }}
-          PRISM_API_KEY: ${{ secrets.PRISM_API_KEY }}
-        run: |
-          echo "🚨 Triggering 'prism alerts' via deployed backend"
-          curl -sf -X POST "$PRISM_API_URL/api/v1/webhooks/test-review" \
-            -H "Content-Type: application/json" \
-            -H "X-API-Key: $PRISM_API_KEY" \
-            -d '{"repo": "${{ github.repository }}", "pr_number": ${{ steps.get_pr_number.outputs.pr_number }}}'
-          echo "✅ Alert analysis queued on deployed backend"
         continue-on-error: true
 
       # ════════════════════════════════════════════════════════════════════
@@ -133,112 +104,6 @@ jobs:
 
               if state.final_review:
                   await gh.post_review(repo, pr_number, state.final_review.model_dump())
-
-          asyncio.run(main())
-          "
-        working-directory: backend
-        continue-on-error: true
-
-      - name: Run Prism Dashboard Analysis (Lightweight CI)
-        if: vars.PRISM_API_URL == '' && contains(github.event.comment.body, 'prism dashboard')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'groq' }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          python -c "
-          import asyncio
-          from services.github_service import GitHubService
-          from services.comment_service import CommentService
-          from agents.dashboard_agent import DashboardAgent
-          from agents.schemas import ReviewState
-          from agents.context_fetcher import context_fetcher_agent
-
-          async def main():
-              gh = GitHubService()
-              repo = '${{ github.repository }}'
-              pr_number = ${{ steps.get_pr_number.outputs.pr_number }}
-
-              diff = await gh.fetch_pr_diff(repo, pr_number)
-              changed_files = await gh.fetch_pr_files(repo, pr_number)
-              pr_details = await gh.fetch_pr_details(repo, pr_number)
-
-              state = ReviewState(
-                  pr_title=pr_details.get('title', ''),
-                  pr_description=pr_details.get('body', ''),
-                  repo_full_name=repo,
-                  pr_number=pr_number,
-                  changed_files=changed_files,
-                  diff_data={'full_diff': diff},
-              )
-              
-              fetch_updates = await context_fetcher_agent(state)
-              for k, v in fetch_updates.items():
-                  setattr(state, k, v)
-
-              agent = DashboardAgent()
-              result = await agent.run(state)
-
-              suggestions = result.get('suggestions', [])
-              comment = CommentService()
-              if suggestions:
-                  await comment.post_dashboard_suggestions(repo, pr_number, suggestions)
-              else:
-                  await comment.post_summary_comment(repo, pr_number, '📊 No dashboard suggestions found for this PR.')
-
-          asyncio.run(main())
-          "
-        working-directory: backend
-        continue-on-error: true
-
-      - name: Run Prism Alert Analysis (Lightweight CI)
-        if: vars.PRISM_API_URL == '' && contains(github.event.comment.body, 'prism alerts')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'groq' }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: |
-          python -c "
-          import asyncio
-          from services.github_service import GitHubService
-          from services.comment_service import CommentService
-          from agents.alert_agent import AlertAgent
-          from agents.schemas import ReviewState
-          from agents.context_fetcher import context_fetcher_agent
-
-          async def main():
-              gh = GitHubService()
-              repo = '${{ github.repository }}'
-              pr_number = ${{ steps.get_pr_number.outputs.pr_number }}
-
-              diff = await gh.fetch_pr_diff(repo, pr_number)
-              changed_files = await gh.fetch_pr_files(repo, pr_number)
-              pr_details = await gh.fetch_pr_details(repo, pr_number)
-
-              state = ReviewState(
-                  pr_title=pr_details.get('title', ''),
-                  pr_description=pr_details.get('body', ''),
-                  repo_full_name=repo,
-                  pr_number=pr_number,
-                  changed_files=changed_files,
-                  diff_data={'full_diff': diff},
-              )
-
-              fetch_updates = await context_fetcher_agent(state)
-              for k, v in fetch_updates.items():
-                  setattr(state, k, v)
-
-              agent = AlertAgent()
-              result = await agent.run(state)
-
-              suggestions = result.get('suggestions', [])
-              comment = CommentService()
-              if suggestions:
-                  await comment.post_alert_suggestions(repo, pr_number, suggestions)
-              else:
-                  await comment.post_summary_comment(repo, pr_number, '🚨 No alert suggestions found for this PR.')
 
           asyncio.run(main())
           "
