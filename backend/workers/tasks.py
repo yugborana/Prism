@@ -131,20 +131,15 @@ def process_pr_review(self, pr_data: dict[str, Any]):
     # Celery tasks are synchronous by default, so we run the async orchestrator
     # using a dedicated event loop. Always create a new one — Celery worker
     # processes don't have a running asyncio loop.
-    # Use a helper to avoid "Event loop is closed" errors from httpx HTTP/2
-    # connection cleanup during retries.
-    def _run_async(coro):
-        """Run an async coroutine in a fresh event loop to avoid lifecycle issues."""
-        _loop = asyncio.new_event_loop()
-        try:
-            return _loop.run_until_complete(coro)
-        finally:
-            # Shut down async generators and executor before closing
-            _loop.run_until_complete(_loop.shutdown_asyncgens())
-            _loop.close()
-
+    # IMPORTANT: Use a SINGLE loop for the entire task lifetime. The shared
+    # httpx client binds to the first loop it sees; creating/closing loops
+    # per coroutine causes "Event loop is closed" on subsequent calls.
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+
+    def _run_async(coro):
+        """Run an async coroutine on the task's shared event loop."""
+        return loop.run_until_complete(coro)
 
     with tracer.start_as_current_span(
         "prism.review.process",
