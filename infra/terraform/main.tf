@@ -29,10 +29,25 @@ variable "db_password" {
 }
 
 variable "github_app_id" { type = string }
-variable "github_app_private_key" { type = string, sensitive = true }
-variable "github_webhook_secret" { type = string, sensitive = true }
-variable "groq_api_key" { type = string, sensitive = true }
-variable "prism_api_key" { type = string, sensitive = true }
+variable "github_app_private_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "github_webhook_secret" {
+  type      = string
+  sensitive = true
+}
+
+variable "groq_api_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "prism_api_key" {
+  type      = string
+  sensitive = true
+}
 
 variable "ssh_allowed_cidrs" {
   description = "CIDR blocks allowed to SSH into EC2 (restrict to your IP or GitHub Actions runner IPs)"
@@ -64,7 +79,7 @@ resource "aws_security_group" "ec2_sg" {
     to_port     = 22
     protocol    = "tcp"
     cidr_blocks = var.ssh_allowed_cidrs
-    description = "SSH access — override ssh_allowed_cidrs in tfvars"
+    description = "SSH access - override ssh_allowed_cidrs in tfvars"
   }
 
   # Allow HTTP (API)
@@ -158,7 +173,7 @@ data "aws_ami" "amazon_linux_2023" {
 
 resource "aws_instance" "prism_app" {
   ami           = data.aws_ami.amazon_linux_2023.id
-  instance_type = "t2.micro" # Free Tier eligible
+  instance_type = "t3.micro" # Free Tier eligible for newer accounts
   
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
   iam_instance_profile   = aws_iam_instance_profile.prism_ec2_profile.name

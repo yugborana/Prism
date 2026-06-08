@@ -73,6 +73,10 @@ jobs:
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            if [ ! -d "/home/ec2-user/prism" ]; then
+              echo "First deployment — cloning repository..."
+              git clone https://github.com/${{ github.repository }}.git /home/ec2-user/prism
+            fi
             cd /home/ec2-user/prism
             git pull origin main
             docker compose build --no-cache fastapi celery celery-beat
