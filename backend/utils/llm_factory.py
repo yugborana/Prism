@@ -42,7 +42,7 @@ class LLMClient:
         self.provider = provider or settings.llm_provider
         # Map generic provider to specific model string for litellm
         if self.provider == "groq":
-            self.model = "groq/llama-3.1-70b-versatile"
+            self.model = "groq/llama-3.3-70b-versatile"
         elif self.provider == "gemini":
             self.model = "gemini/gemini-2.0-flash"
         elif self.provider == "openai":
@@ -54,7 +54,7 @@ class LLMClient:
             # Best price/performance for code review on Bedrock
             self.model = "bedrock/anthropic.claude-3-5-haiku-20241022-v1:0"
         else:
-            self.model = "groq/llama-3.1-70b-versatile"  # fallback default
+            self.model = "groq/llama-3.3-70b-versatile"  # fallback default
 
     # ── Text Generation ───────────────────────────────────────────────────
 
