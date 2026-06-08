@@ -75,7 +75,7 @@ class GitHubService:
         # Option 1: Direct env var (production — injected from AWS Secrets Manager)
         key_content = settings.github_app_private_key
         if key_content and key_content.startswith("-----BEGIN"):
-            self._private_key = key_content
+            self._private_key = key_content.replace("\r", "")
             logger.info("github_private_key_loaded", source="env_var")
             return self._private_key
 

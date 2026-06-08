@@ -25,9 +25,6 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Install git for shallow repo cloning (indexing pipeline)
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
-# Copy application code
-COPY . .
-
 # Create non-root user
 RUN useradd --create-home prism && chown -R prism:prism /app
 USER prism
@@ -37,6 +34,10 @@ USER prism
 # INSIDE the container — and that download is lost on every container restart
 # (every deploy). Baking it into the image layer means zero cold-start latency.
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+# Copy application code LAST — this is the layer that changes most often.
+# Everything above this line is cached, so code-only deploys take ~2 seconds.
+COPY --chown=prism:prism . .
 
 # Health check — uses stdlib urllib so it works even if site-packages
 # didn't copy correctly (httpx is a third-party dependency).
