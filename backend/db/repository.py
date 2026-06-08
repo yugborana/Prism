@@ -138,9 +138,9 @@ class ReviewRepository:
                 severity=f.get("severity", "info"),
                 file_path=f.get("file_path", ""),
                 line_number=f.get("line_number"),
-                title=f.get("title", ""),
+                title=f.get("category", f.get("title", "")),
                 description=f.get("description", "")[:2000],
-                suggestion=f.get("suggestion", "")[:2000],
+                suggestion=f.get("suggested_fix", f.get("suggestion", ""))[:2000],
             ))
         self._session.add_all(records)
         await self._session.flush()

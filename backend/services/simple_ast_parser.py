@@ -12,6 +12,7 @@ LANGUAGE_MODULES = {
     "python": tspython,
     "javascript": tsjs,
     "typescript": tsts,
+    "tsx": tsts,
     "go": tsgo,
     "rust": tsrust,
 }
@@ -19,7 +20,9 @@ LANGUAGE_MODULES = {
 LANGUAGE_MAP = {
     ".py": "python",
     ".js": "javascript",
+    ".jsx": "javascript",
     ".ts": "typescript",
+    ".tsx": "tsx",
     ".go": "go",
     ".rs": "rust",
 }
@@ -36,7 +39,15 @@ class SimpleASTParser:
             raise ValueError(f"Unsupported language: {language}")
 
         lang_module = LANGUAGE_MODULES[language]
-        self.language = Language(lang_module.language())
+        
+        if language == "typescript":
+            # tree_sitter_typescript has language_typescript() and language_tsx()
+            self.language = Language(lang_module.language_typescript())
+        elif language == "tsx":
+            self.language = Language(lang_module.language_tsx())
+        else:
+            self.language = Language(lang_module.language())
+            
         self.parser = Parser(self.language)
         self.lang_name = language
 
@@ -80,7 +91,7 @@ class SimpleASTParser:
                     )
 
             elif (
-                self.lang_name in ("javascript", "typescript")
+                self.lang_name in ("javascript", "typescript", "tsx")
                 and node.type == "function_declaration"
             ):
                 name_node = node.child_by_field_name("name")
@@ -192,7 +203,7 @@ class SimpleASTParser:
                     )
 
             elif (
-                self.lang_name in ("javascript", "typescript")
+                self.lang_name in ("javascript", "typescript", "tsx")
                 and node.type == "class_declaration"
             ):
                 name_node = node.child_by_field_name("name")
@@ -315,7 +326,7 @@ class SimpleASTParser:
                             module = node_text(child)
                             imports.append(module)
 
-            elif self.lang_name in ("javascript", "typescript"):
+            elif self.lang_name in ("javascript", "typescript", "tsx"):
                 if node.type == "import_statement":
                     for child in node.children:
                         if child.type == "string":

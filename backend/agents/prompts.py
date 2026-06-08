@@ -20,8 +20,21 @@ SECURITY_ANALYZE = """You are a Security Analysis Agent reviewing a pull request
 **Repository Context:**
 {context}
 
+**Cross-File Dependencies (from codebase index):**
+{cross_file_context}
+
+**Static Analysis Results (pre-computed by tree-sitter):**
+{static_analysis}
+
+The static analysis above has already identified potential OWASP anti-patterns using
+AST-aware pattern matching (not regex). Your job is to VALIDATE these findings
+against the actual code context. A static tool cannot understand business logic — you can.
+Confirm real vulnerabilities and remove false positives. Also look for issues the
+static analyzer may have missed.
+
 Read the diff carefully. Identify the intent of the changes and note which areas
 could have security implications (auth, input handling, data exposure, crypto, etc).
+Use the cross-file dependencies to assess the blast radius — will callers break?
 
 Return JSON:
 {{
@@ -126,8 +139,21 @@ QUALITY_ANALYZE = """You are a Code Quality Agent reviewing a pull request.
 **Repository Context:**
 {context}
 
+**Cross-File Dependencies (from codebase index):**
+{cross_file_context}
+
+**Static Analysis Results (pre-computed by tree-sitter):**
+{static_analysis}
+
+The static analysis above shows cyclomatic complexity scores, nesting depths, and
+call graphs for the changed functions. Functions with complexity > 10 are candidates
+for refactoring. Nesting depth > 4 indicates hard-to-read code. Use these metrics to
+validate your quality assessment — but also look for issues the static tool can't detect
+(logic bugs, design violations, naming problems).
+
 Read the diff carefully. Understand what the code is supposed to do and identify
 areas that might have quality issues (bugs, dead code, poor patterns, etc).
+Use cross-file dependencies to check pattern consistency and find missing updates to callers.
 
 Return JSON:
 {{
@@ -229,8 +255,21 @@ PERFORMANCE_ANALYZE = """You are a Performance Analysis Agent reviewing a pull r
 **Repository Context:**
 {context}
 
+**Cross-File Dependencies (from codebase index):**
+{cross_file_context}
+
+**Static Analysis Results (pre-computed by tree-sitter):**
+{static_analysis}
+
+The call graph above shows which functions call which. Use it to identify:
+- Database calls inside loops (N+1 query patterns)
+- Recursive calls without memoization
+- Synchronous I/O calls that should be async
+- High-complexity functions (complexity > 10) that may have algorithmic inefficiencies
+
 Read the diff and identify areas that could have performance implications
 (loops, database calls, memory allocation, I/O operations, etc).
+Use cross-file dependencies to check if callers add N+1 query patterns or redundant calls.
 
 Return JSON:
 {{
@@ -327,6 +366,18 @@ OBSERVABILITY_ANALYZE = """You are an Observability Instrumentation Agent review
 
 **Repository Context:**
 {context}
+
+**Cross-File Dependencies (from codebase index):**
+{cross_file_context}
+
+**Static Analysis Results (pre-computed by tree-sitter):**
+{static_analysis}
+
+The function signatures above show which functions exist in the changed files,
+along with their complexity and call graphs. Use this to identify:
+- Functions with no logging or tracing (especially high-complexity ones)
+- Error-handling paths without span status recording
+- Functions that make external calls but have no metrics
 
 Read the diff carefully. Identify the intent of the changes and note which areas
 could benefit from observability instrumentation (OpenTelemetry spans, logging,
@@ -465,6 +516,9 @@ DASHBOARD_ANALYZE = """You are a Dashboard Generation Agent analyzing a pull req
 **Repository Context:**
 {context}
 
+**Cross-File Dependencies (from codebase index):**
+{cross_file_context}
+
 Analyze the code changes and identify ALL telemetry instrumentation present:
 - OpenTelemetry spans (trace names, attributes, status codes)
 - Prometheus/custom metrics (counters, histograms, gauges)
@@ -588,6 +642,9 @@ ALERT_ANALYZE = """You are an Alert Generation Agent analyzing a pull request.
 
 **Repository Context:**
 {context}
+
+**Cross-File Dependencies (from codebase index):**
+{cross_file_context}
 
 Analyze the code changes and identify all telemetry that could trigger alerts:
 - OpenTelemetry spans with error status codes

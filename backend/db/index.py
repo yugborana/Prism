@@ -22,6 +22,10 @@ COLLECTIONS = {
         "description": "Learnings from PR commits & comments along with user feedback",
         "vector_size": VECTOR_SIZE,
     },
+    "repo_chunks": {
+        "description": "Syntactic code chunks with call graph metadata per repo (Cursor-style indexing)",
+        "vector_size": VECTOR_SIZE,
+    },
 }
 
 
@@ -34,9 +38,6 @@ def initialize_collections() -> None:
         from qdrant_client.models import (
             Distance,
             PayloadSchemaType,
-            QuantizationConfig,
-            ScalarQuantization,
-            ScalarType,
             VectorParams,
         )
     except ImportError:
@@ -77,6 +78,24 @@ def initialize_collections() -> None:
                     field_schema=PayloadSchemaType.KEYWORD,
                 )
                 logger.debug("payload_index_created", collection=collection_name, field="file_path")
+
+            # repo_chunks needs multiple payload indexes for filtered search
+            if collection_name == "repo_chunks":
+                for field_name in [
+                    "repo_name", "file_path", "symbol_name",
+                    "chunk_type", "symbols_called", "imports",
+                ]:
+                    try:
+                        qdrant_client.create_payload_index(
+                            collection_name=collection_name,
+                            field_name=field_name,
+                            field_schema=PayloadSchemaType.KEYWORD,
+                        )
+                    except Exception as idx_err:
+                        if "already exists" not in str(idx_err).lower():
+                            logger.debug("payload_index_note", collection=collection_name, field=field_name, error=str(idx_err))
+                logger.debug("repo_chunks_indexes_created")
+
         except Exception as e:
             if "already exists" not in str(e).lower():
                 logger.debug("payload_index_note", collection=collection_name, error=str(e))

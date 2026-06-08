@@ -7,13 +7,12 @@ Provides async methods to:
 2. Create Datadog monitors via the Datadog API.
 """
 
-import json
 import re
 from typing import Any
 
-import httpx
 from observability.logging import get_logger
 from utils.config import settings
+from utils.connections import get_httpx_client
 
 logger = get_logger(__name__)
 
@@ -128,10 +127,10 @@ class AlertService:
 
         # Check if file already exists (to get its SHA for updates)
         sha = None
-        async with httpx.AsyncClient(timeout=30) as client:
-            existing = await client.get(f"{url}?ref={branch}", headers=headers)
-            if existing.status_code == 200:
-                sha = existing.json().get("sha")
+        client = get_httpx_client()
+        existing = await client.get(f"{url}?ref={branch}", headers=headers, timeout=30)
+        if existing.status_code == 200:
+            sha = existing.json().get("sha")
 
         # Commit the file
         payload: dict[str, Any] = {
@@ -142,26 +141,25 @@ class AlertService:
         if sha:
             payload["sha"] = sha
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            try:
-                response = await client.put(url, json=payload, headers=headers)
-                if response.status_code < 200 or response.status_code > 299:
-                    logger.error(
-                        "github_commit_alert_failed",
-                        status=response.status_code,
-                        body=response.text[:300],
-                    )
-                    return {"error": f"GitHub API error ({response.status_code}): {response.text[:200]}"}
-                logger.info("prometheus_alert_committed", name=alert_name, path=filepath)
-                return {
-                    "status": "committed",
-                    "name": alert_name,
-                    "path": filepath,
-                    "sha": response.json().get("content", {}).get("sha", ""),
-                }
-            except Exception as e:
-                logger.error("github_commit_alert_error", error=str(e))
-                return {"error": str(e)}
+        try:
+            response = await client.put(url, json=payload, headers=headers, timeout=30)
+            if response.status_code < 200 or response.status_code > 299:
+                logger.error(
+                    "github_commit_alert_failed",
+                    status=response.status_code,
+                    body=response.text[:300],
+                )
+                return {"error": f"GitHub API error ({response.status_code}): {response.text[:200]}"}
+            logger.info("prometheus_alert_committed", name=alert_name, path=filepath)
+            return {
+                "status": "committed",
+                "name": alert_name,
+                "path": filepath,
+                "sha": response.json().get("content", {}).get("sha", ""),
+            }
+        except Exception as e:
+            logger.error("github_commit_alert_error", error=str(e))
+            return {"error": str(e)}
 
     # ── Datadog ───────────────────────────────────────────────────────────
 
@@ -208,22 +206,22 @@ class AlertService:
             "DD-APPLICATION-KEY": dd_app_key,
         }
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            try:
-                response = await client.post(url, json=monitor_body, headers=headers)
-                if response.status_code < 200 or response.status_code > 299:
-                    logger.error(
-                        "datadog_monitor_api_error",
-                        status=response.status_code,
-                        body=response.text[:500],
-                    )
-                    return {"error": f"Datadog API error ({response.status_code}): {response.text[:200]}"}
-                result = response.json()
-                logger.info("datadog_monitor_created", name=name, monitor_id=result.get("id"))
-                return {"status": "created", "name": name, "monitor_id": result.get("id")}
-            except Exception as e:
-                logger.error("datadog_monitor_request_error", error=str(e))
-                return {"error": str(e)}
+        client = get_httpx_client()
+        try:
+            response = await client.post(url, json=monitor_body, headers=headers, timeout=30)
+            if response.status_code < 200 or response.status_code > 299:
+                logger.error(
+                    "datadog_monitor_api_error",
+                    status=response.status_code,
+                    body=response.text[:500],
+                )
+                return {"error": f"Datadog API error ({response.status_code}): {response.text[:200]}"}
+            result = response.json()
+            logger.info("datadog_monitor_created", name=name, monitor_id=result.get("id"))
+            return {"status": "created", "name": name, "monitor_id": result.get("id")}
+        except Exception as e:
+            logger.error("datadog_monitor_request_error", error=str(e))
+            return {"error": str(e)}
 
     @staticmethod
     def _convert_to_datadog_query(query: str) -> str:

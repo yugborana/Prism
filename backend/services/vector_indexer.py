@@ -12,13 +12,10 @@ Collections populated:
 
 from __future__ import annotations
 
-import asyncio
 import re
 import uuid
-from typing import Any
 
 from observability.logging import get_logger
-from utils.config import settings
 from utils.qdrant_client import get_qdrant_client
 
 logger = get_logger(__name__)
@@ -222,7 +219,8 @@ class VectorIndexer:
             },
         )
 
-        self._client.upsert(collection_name="code_graphs", points=[point])
+        import asyncio
+        await asyncio.to_thread(self._client.upsert, collection_name="code_graphs", points=[point])
 
     async def _index_import_file(
         self, file_path: str, file_diff: str, repo_name: str, pr_number: int
@@ -257,7 +255,8 @@ class VectorIndexer:
             },
         )
 
-        self._client.upsert(collection_name="import_files", points=[point])
+        import asyncio
+        await asyncio.to_thread(self._client.upsert, collection_name="import_files", points=[point])
 
     async def _embed_text(self, text: str) -> list[float] | None:
         """Generate embedding using the shared LLMClient."""

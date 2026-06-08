@@ -13,25 +13,18 @@ Usage:
 
 from contextlib import contextmanager
 import time
-
 from observability.logging import get_logger
+
+PROMETHEUS_AVAILABLE = False
+_MULTIPROCESS_MODE = False
 
 logger = get_logger(__name__)
 
-# Graceful import — production has prometheus, dev may not
-try:
-    from prometheus_client import (
-        Counter,
-        Gauge,
-        Histogram,
-        Info,
-        generate_latest,
-        start_http_server,
-    )
-    PROMETHEUS_AVAILABLE = True
-except ImportError:
-    PROMETHEUS_AVAILABLE = False
-    logger.warning("prometheus_client not installed — metrics will be no-ops")
+# Stub classes since prometheus_client is removed
+Counter = None
+Gauge = None
+Histogram = None
+Info = None
 
 
 # ── No-Op Fallback ────────────────────────────────────────────────────────
@@ -89,6 +82,7 @@ reviews_in_flight = _metric(
     Gauge,
     "prism_reviews_in_flight",
     "Number of reviews currently being processed",
+    multiprocess_mode='livesum',
 )
 
 findings_total = _metric(
@@ -96,6 +90,19 @@ findings_total = _metric(
     "prism_findings_total",
     "Total findings reported by agents",
     ["agent", "severity"],  # severity: critical | high | medium | low | info
+)
+
+# End-to-end review latency: from Celery task start to completion.
+# This is distinct from review_duration_seconds which only measures the
+# orchestrator's run_review(). The e2e metric includes Celery queue wait,
+# diff fetching from GitHub, all agent runs, and the final GitHub post.
+# Buckets tuned for tail latency detection (p95, p99).
+review_e2e_seconds = _metric(
+    Histogram,
+    "prism_review_e2e_seconds",
+    "End-to-end review latency from Celery task start to completion",
+    ["repo"],
+    buckets=[5, 10, 30, 60, 120, 300, 600, 900],
 )
 
 
@@ -123,6 +130,7 @@ agent_tasks_in_flight = _metric(
     "prism_agent_tasks_in_flight",
     "Number of agent tasks currently running",
     ["agent"],
+    multiprocess_mode='livesum',
 )
 
 
@@ -181,8 +189,61 @@ db_query_duration_seconds = _metric(
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# DEAD LETTER QUEUE (DLQ) METRICS
+# ══════════════════════════════════════════════════════════════════════════
+
+dlq_tasks_total = _metric(
+    Counter,
+    "prism_dlq_tasks_total",
+    "Total tasks routed to the Dead Letter Queue",
+)
+
+dlq_depth = _metric(
+    Gauge,
+    "prism_dlq_depth",
+    "Current number of messages in the Dead Letter Queue",
+    multiprocess_mode='max',
+)
+
+celery_task_retries_total = _metric(
+    Counter,
+    "prism_celery_task_retries_total",
+    "Total Celery task retries",
+    ["task", "retry_number"],
+)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# REPO INDEXING METRICS
+# ══════════════════════════════════════════════════════════════════════════
+
+indexing_tasks_total = _metric(
+    Counter,
+    "prism_indexing_tasks_total",
+    "Total repo indexing tasks executed",
+    ["task_type", "status"],  # task_type: full | refresh | cleanup, status: completed | failed | skipped
+)
+
+index_build_duration_seconds = _metric(
+    Histogram,
+    "prism_index_build_duration_seconds",
+    "Time taken to build or refresh a repo index",
+    ["task_type"],
+    buckets=[10, 30, 60, 120, 300, 600, 1800, 3600],
+)
+
+index_chunks_embedded = _metric(
+    Counter,
+    "prism_index_chunks_embedded",
+    "Number of chunks embedded during indexing",
+    ["cache_status"],  # hit | miss
+)
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # CONTEXT MANAGERS (adapted from Proximus)
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @contextmanager
 def track_review(repo: str):
@@ -200,6 +261,12 @@ def track_review(repo: str):
         reviews_in_flight.dec()
         review_total.labels(repo=repo, status=status).inc()
         review_duration_seconds.labels(repo=repo).observe(duration)
+        logger.info(
+            "review_completed",
+            repo=repo,
+            status=status,
+            duration_seconds=round(duration, 2)
+        )
 
 
 @contextmanager
@@ -219,6 +286,12 @@ def track_agent_task(agent: str):
         agent_tasks_in_flight.labels(agent=agent).dec()
         agent_task_total.labels(agent=agent, status=status).inc()
         agent_task_duration_seconds.labels(agent=agent).observe(duration)
+        logger.info(
+            "agent_task_completed",
+            agent=agent,
+            status=status,
+            duration_seconds=round(duration, 2)
+        )
 
 
 @contextmanager
@@ -240,23 +313,30 @@ def track_llm_call(agent: str, model: str):
         raise
     finally:
         duration = time.monotonic() - start
-        llm_latency_seconds.labels(agent=agent, model=model).observe(duration)
-        llm_calls_total.labels(agent=agent, model=model, status=status).inc()
+        logger.info(
+            "llm_call_completed",
+            agent=agent,
+            model=model,
+            status=status,
+            duration_seconds=round(duration, 2)
+        )
 
 
-# ── Server ────────────────────────────────────────────────────────────────
+@contextmanager
+def track_indexing_task(task_type: str):
+    """Track background indexing task duration and outcome."""
+    start = time.monotonic()
+    status = "completed"
+    try:
+        yield
+    except Exception:
+        status = "failed"
+        raise
+    finally:
+        duration = time.monotonic() - start
+        indexing_tasks_total.labels(task_type=task_type, status=status).inc()
+        index_build_duration_seconds.labels(task_type=task_type).observe(duration)
 
-def start_metrics_server(port: int = 9090):
-    """Start a standalone Prometheus HTTP server on the given port."""
-    if PROMETHEUS_AVAILABLE:
-        start_http_server(port)
-        logger.info("prometheus_metrics_server_started", port=port)
-    else:
-        logger.warning("prometheus not available — metrics server skipped")
 
+# Metrics migrated to CloudWatch Logs.
 
-def get_metrics_text() -> str:
-    """Return current metrics in Prometheus text exposition format."""
-    if PROMETHEUS_AVAILABLE:
-        return generate_latest().decode("utf-8")
-    return "# prometheus_client not available\n"

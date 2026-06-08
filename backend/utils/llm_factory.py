@@ -1,235 +1,165 @@
 """
 Prism Multi-Provider LLM Client Factory.
 
-Supports: Gemini, OpenAI, Anthropic, Groq, Bedrock
+Supports: LiteLLM Gateway
 All calls are async. Synchronous SDKs are wrapped with asyncio.to_thread().
 
 Usage:
     from utils.llm_factory import LLMClient
-    client = LLMClient()                      # Uses default provider from config
-    client = LLMClient(provider="openai")      # Override provider
+    client = LLMClient()
     response = await client.generate("Analyze this code...")
     embedding = await client.embed("some text")
 """
 
 import asyncio
-from typing import Any
 
 from observability.logging import get_logger
 from utils.config import settings
 
 logger = get_logger(__name__)
 
+# Global cache for the embedding model to avoid reloading on every request
+_embedding_model = None
+
+def _get_embedding_model():
+    global _embedding_model
+    if _embedding_model is None:
+        # Lazy load to avoid memory overhead on startup
+        from sentence_transformers import SentenceTransformer
+        logger.info("loading_sentence_transformers_model", model=settings.embedding_model)
+        _embedding_model = SentenceTransformer(settings.embedding_model)
+    return _embedding_model
+
 
 class LLMClient:
     """
-    Unified async LLM client with multi-provider support.
-
-    Each provider's SDK is lazily imported only when first used,
-    so missing SDKs don't crash the app at import time.
+    Unified async LLM client using LiteLLM as a library.
     """
 
     def __init__(self, provider: str | None = None):
         self.provider = provider or settings.llm_provider
-        self.model = settings.get_model_for_provider(self.provider)
-        self._client: Any = None
-
-    def _get_client(self) -> Any:
-        """Lazily initialize the provider-specific client."""
-        if self._client is not None:
-            return self._client
-
-        api_key = settings.get_api_key_for_provider(self.provider)
-
-        if self.provider == "gemini":
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            self._client = genai
+        # Map generic provider to specific model string for litellm
+        if self.provider == "groq":
+            self.model = "groq/llama-3.1-70b-versatile"
+        elif self.provider == "gemini":
+            self.model = "gemini/gemini-2.0-flash"
         elif self.provider == "openai":
-            from openai import OpenAI
-            self._client = OpenAI(api_key=api_key)
+            self.model = "gpt-4o-mini"
         elif self.provider == "anthropic":
-            from anthropic import Anthropic
-            self._client = Anthropic(api_key=api_key)
-        elif self.provider == "groq":
-            from groq import Groq
-            self._client = Groq(api_key=api_key)
+            self.model = "claude-3-haiku-20240307"
         elif self.provider == "bedrock":
-            import boto3
-            self._client = boto3.client(
-                "bedrock-runtime",
-                region_name=settings.aws_region,
-            )
-        elif self.provider == "ollama":
-            from openai import OpenAI
-            self._client = OpenAI(
-                base_url=settings.ollama_base_url,
-                api_key="ollama",  # Ollama doesn't need a real key
-            )
+            # Claude 3.5 Haiku: 200K context, $0.25/M input, $1.25/M output
+            # Best price/performance for code review on Bedrock
+            self.model = "bedrock/anthropic.claude-3-5-haiku-20241022-v1:0"
         else:
-            raise ValueError(f"Unsupported LLM provider: {self.provider}")
-
-        logger.info(
-            "llm_client_initialized",
-            provider=self.provider,
-            model=self.model,
-        )
-        return self._client
+            self.model = "groq/llama-3.1-70b-versatile"  # fallback default
 
     # ── Text Generation ───────────────────────────────────────────────────
 
-    async def generate(self, prompt: str, system_prompt: str = "") -> str:
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: str = "",
+        temperature: float = 0.3,
+        max_tokens: int = 8192,
+    ) -> str:
         """
-        Generate text from the configured LLM provider.
+        Generate text using litellm.
         Returns the response text content.
         """
         from observability.metrics import track_llm_call
+        import litellm
 
-        client = self._get_client()
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
 
-        with track_llm_call(agent="LLMClient", model=self.model):
+        with track_llm_call(agent="LLMClient", model=self.model) as tracker:
             try:
-                if self.provider == "gemini":
-                    return await self._generate_gemini(client, prompt, system_prompt)
-                elif self.provider == "openai":
-                    return await self._generate_openai(client, prompt, system_prompt)
-                elif self.provider == "anthropic":
-                    return await self._generate_anthropic(client, prompt, system_prompt)
-                elif self.provider == "groq":
-                    return await self._generate_groq(client, prompt, system_prompt)
-                elif self.provider == "bedrock":
-                    return await self._generate_bedrock(client, prompt, system_prompt)
-                elif self.provider == "ollama":
-                    return await self._generate_ollama(client, prompt, system_prompt)
-                else:
-                    raise ValueError(f"Unsupported provider: {self.provider}")
+                response = await litellm.acompletion(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                
+                if hasattr(response, 'usage') and response.usage:
+                    tracker.record_tokens(
+                        input_tokens=response.usage.prompt_tokens,
+                        output_tokens=response.usage.completion_tokens,
+                    )
+                    
+                return response.choices[0].message.content
             except Exception as e:
                 logger.error(
                     "llm_generation_failed",
-                    provider=self.provider,
                     model=self.model,
                     error=str(e),
                 )
                 raise
 
-    async def _generate_gemini(self, client: Any, prompt: str, system_prompt: str) -> str:
-        model = client.GenerativeModel(
-            self.model,
-            system_instruction=system_prompt if system_prompt else None,
-        )
-        response = await asyncio.to_thread(model.generate_content, prompt)
-        return response.text
-
-    async def _generate_openai(self, client: Any, prompt: str, system_prompt: str) -> str:
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model=self.model,
-            messages=messages,
-        )
-        return response.choices[0].message.content
-
-    async def _generate_anthropic(self, client: Any, prompt: str, system_prompt: str) -> str:
-        kwargs: dict[str, Any] = {
-            "model": self.model,
-            "max_tokens": 8192,
-            "messages": [{"role": "user", "content": prompt}],
-        }
-        if system_prompt:
-            kwargs["system"] = system_prompt
-
-        response = await asyncio.to_thread(client.messages.create, **kwargs)
-        return response.content[0].text
-
-    async def _generate_groq(self, client: Any, prompt: str, system_prompt: str) -> str:
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model=self.model,
-            messages=messages,
-        )
-        return response.choices[0].message.content
-
-    async def _generate_bedrock(self, client: Any, prompt: str, system_prompt: str) -> str:
-        import json
-
-        full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-        body = json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 8192,
-            "messages": [{"role": "user", "content": full_prompt}],
-        })
-
-        response = await asyncio.to_thread(
-            client.invoke_model,
-            modelId=self.model,
-            contentType="application/json",
-            accept="application/json",
-            body=body,
-        )
-        result = json.loads(response["body"].read())
-        return result["content"][0]["text"]
-
-    async def _generate_ollama(self, client: Any, prompt: str, system_prompt: str) -> str:
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-
-        # Explicitly configure Ollama context window size to 8192 via extra_body
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model=self.model,
-            messages=messages,
-            extra_body={
-                "options": {
-                    "num_ctx": 8192
-                }
-            }
-        )
-        return response.choices[0].message.content
-
     # ── Embeddings ────────────────────────────────────────────────────────
 
     async def embed(self, text: str) -> list[float]:
         """
-        Generate an embedding vector for the given text.
-        Uses Ollama's all-minilm model via its OpenAI-compatible API,
-        keeping embeddings consistent across the vector DB.
+        Generate an embedding vector for the given text using sentence-transformers locally.
         """
         if not text or not text.strip():
             return [0.0] * settings.embedding_dim
 
         try:
-            from openai import OpenAI
-            embed_client = OpenAI(
-                base_url=settings.ollama_base_url,
-                api_key="ollama",
-            )
-
-            result = await asyncio.to_thread(
-                embed_client.embeddings.create,
-                model=settings.embedding_model,
-                input=text,
-            )
-            return result.data[0].embedding
+            global _embedding_model
+            if _embedding_model is None:
+                # First load involves disk I/O and heavy parsing — do not block event loop
+                model = await asyncio.to_thread(_get_embedding_model)
+            else:
+                model = _embedding_model
+            
+            # encode is synchronous, run it in a thread pool
+            embedding = await asyncio.to_thread(model.encode, text)
+            return embedding.tolist()
         except Exception as e:
             logger.error("embedding_failed", error=str(e))
             # Return zero vector as fallback — prevents crashes during indexing
             return [0.0] * settings.embedding_dim
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Embed multiple texts concurrently."""
-        tasks = [self.embed(t) for t in texts]
-        return await asyncio.gather(*tasks)
+        """Embed multiple texts using native batch encoding in a single thread.
+
+        SentenceTransformer.encode() supports list input for vectorized
+        batch computation — significantly faster and more memory-efficient
+        than spawning N separate threads (critical on t2.micro).
+        """
+        if not texts:
+            return []
+
+        # Filter blanks but remember positions so we can reassemble
+        non_empty: list[tuple[int, str]] = [
+            (i, t) for i, t in enumerate(texts) if t and t.strip()
+        ]
+
+        if not non_empty:
+            return [[0.0] * settings.embedding_dim for _ in texts]
+
+        try:
+            global _embedding_model
+            if _embedding_model is None:
+                await asyncio.to_thread(_get_embedding_model)
+            model = _embedding_model
+
+            batch_texts = [t for _, t in non_empty]
+            # Single thread, single batched call — uses vectorized ops internally
+            embeddings = await asyncio.to_thread(model.encode, batch_texts)
+
+            # Reassemble: fill zero vectors for blank inputs
+            result: list[list[float]] = [[0.0] * settings.embedding_dim for _ in range(len(texts))]
+            for idx, (orig_pos, _) in enumerate(non_empty):
+                result[orig_pos] = embeddings[idx].tolist()
+            return result
+        except Exception as e:
+            logger.error("batch_embedding_failed", error=str(e), count=len(texts))
+            return [[0.0] * settings.embedding_dim for _ in texts]
 
     # ── Info ──────────────────────────────────────────────────────────────
 

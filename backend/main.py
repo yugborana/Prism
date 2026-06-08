@@ -6,14 +6,14 @@ Prism AI Code Reviewer — FastAPI Application Entry Point.
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, Response, Depends
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from observability.logging import configure_logging, get_logger
 from utils.config import settings
 from api.webhook import router as webhook_router
 from api.monitoring import router as monitoring_router
-from api.auth import require_api_key
+from api.dlq import router as dlq_router
 
 # Configure logging FIRST — before any other imports that might log
 configure_logging(settings.environment)
@@ -33,6 +33,19 @@ async def lifespan(app: FastAPI):
     if settings.environment == "production" and not settings.github_webhook_secret:
         logger.error("CRITICAL: GITHUB_WEBHOOK_SECRET not set in production! All incoming webhooks will be rejected.")
 
+    # ── Initialize OpenTelemetry Tracing ──────────────────────────────
+    try:
+        from observability.tracing import init_tracing
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+        
+        init_tracing("prism-api")
+        FastAPIInstrumentor.instrument_app(app)
+        HTTPXClientInstrumentor().instrument()
+        logger.info("otel_auto_instrumentation_enabled")
+    except Exception as e:
+        logger.warning("otel_init_failed", error=str(e), msg="Continuing without tracing")
+
     # ── Initialize PostgreSQL (Audit Trail) ───────────────────────────
     try:
         from db.postgres import init_db
@@ -49,25 +62,30 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("vector_db_init_failed", error=str(e), msg="Continuing without vector DB")
 
-    # ── Initialize LLM Client ────────────────────────────────────────
-    try:
-        from utils.llm_factory import LLMClient
-        app.state.llm_client = LLMClient()
-        logger.info("llm_client_ready", provider=settings.llm_provider, model=settings.get_model_for_provider())
-    except Exception as e:
-        logger.warning("llm_client_init_failed", error=str(e))
+    # ── Note: Prometheus metrics have been replaced with CloudWatch Metrics.
+    # No standalone metrics server or endpoint is needed.
 
-    # ── Start Prometheus Metrics Server ────────────────────────────────
+    # ── Initialize Connection Pools ───────────────────────────────────
+    from utils.connections import (
+        init_redis_pool, close_redis_pool,
+        init_httpx_client, close_httpx_client,
+    )
     try:
-        from observability.metrics import start_metrics_server
-        start_metrics_server(port=settings.prometheus_port_api)
+        await init_redis_pool()
     except Exception as e:
-        logger.warning("metrics_server_failed", error=str(e))
+        logger.warning("redis_pool_init_failed", error=str(e))
+
+    try:
+        await init_httpx_client()
+    except Exception as e:
+        logger.warning("httpx_client_init_failed", error=str(e))
 
     logger.info("prism_ready")
     yield
 
     # ── Shutdown ──────────────────────────────────────────────────────
+    await close_redis_pool()
+    await close_httpx_client()
     try:
         from db.postgres import close_db
         await close_db()
@@ -96,6 +114,7 @@ app.add_middleware(
 # ── Routes ──────────────────────────────────────────────────────────────
 app.include_router(webhook_router, prefix="/api/v1")
 app.include_router(monitoring_router, prefix="/api/v1")
+app.include_router(dlq_router, prefix="/api/v1")
 
 
 # ── Health Check ─────────────────────────────────────────────────────────
@@ -114,13 +133,15 @@ async def health_check():
     except Exception as e:
         logger.warning("health_check_postgres_failed", error=str(e))
         
-    # 2. Check Redis
+    # 2. Check Redis (uses shared pool — no per-request connection)
     try:
-        import redis.asyncio as redis_async
-        r = redis_async.from_url(settings.redis_url)
-        await r.ping()
-        await r.close()
-        checks["redis"] = True
+        from utils.connections import get_redis
+        redis = get_redis()
+        if redis is not None:
+            await redis.ping()
+            checks["redis"] = True
+        else:
+            logger.warning("health_check_redis_pool_not_initialized")
     except Exception as e:
         logger.warning("health_check_redis_failed", error=str(e))
 
@@ -135,12 +156,7 @@ async def health_check():
     }
 
 
-# ── Prometheus Metrics Endpoint ──────────────────────────────────────────
-@app.get("/api/metrics")
-async def metrics(_=Depends(require_api_key)):
-    """Expose Prometheus metrics for scraping."""
-    from observability.metrics import get_metrics_text
-    return Response(content=get_metrics_text(), media_type="text/plain")
+# ── Metrics replaced with CloudWatch ────────────────────────────────────
 
 
 if __name__ == "__main__":

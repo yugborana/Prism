@@ -106,11 +106,11 @@ class VectorRetriever:
 
         if learnings:
             parts.append("## Past Review Learnings:")
-            for l in learnings:
-                parts.append(f"- Commit: {l.get('commit_message', 'N/A')}")
-                parts.append(f"  Review: {l.get('bot_comment', 'N/A')[:150]}")
-                if l.get("user_feedback"):
-                    parts.append(f"  Feedback: {l.get('user_feedback', '')[:150]}")
+            for learning in learnings:
+                parts.append(f"- Commit: {learning.get('commit_message', 'N/A')}")
+                parts.append(f"  Review: {learning.get('bot_comment', 'N/A')[:150]}")
+                if learning.get("user_feedback"):
+                    parts.append(f"  Feedback: {learning.get('user_feedback', '')[:150]}")
 
         if code_graphs:
             parts.append("\n## Code Structure:")

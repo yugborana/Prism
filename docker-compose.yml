@@ -1,0 +1,85 @@
+version: "3.9"
+
+services:
+  fastapi:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+      - AWS_REGION=us-east-1
+      - DATABASE_URL=${DATABASE_URL:-}  # Injected from SSM or host env
+      # All other configs and secrets are loaded from AWS SSM at runtime
+    depends_on:
+      - redis
+    # awslogs driver sends stdout directly to CloudWatch Logs
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: /prism/fastapi
+        awslogs-create-group: "true"
+
+  celery:
+    build:
+      context: ./backend
+    environment:
+      - ENVIRONMENT=production
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+      - AWS_REGION=us-east-1
+      - DATABASE_URL=${DATABASE_URL:-}
+    depends_on:
+      - redis
+    command: >
+      celery -A workers.celery_app worker
+      --loglevel=info
+      --concurrency=2
+      -Q celery,prism.dlq,prism.index
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: /prism/celery
+        awslogs-create-group: "true"
+
+  celery-beat:
+    build:
+      context: ./backend
+    environment:
+      - ENVIRONMENT=production
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=http://qdrant:6333
+      - AWS_REGION=us-east-1
+      - DATABASE_URL=${DATABASE_URL:-}
+    depends_on:
+      - redis
+    command: celery -A workers.celery_app beat --loglevel=info
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-east-1
+        awslogs-group: /prism/celery-beat
+        awslogs-create-group: "true"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+  redis_data:
+  qdrant_data:

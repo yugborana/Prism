@@ -15,7 +15,6 @@ dependencies = [
     "httpx>=0.25.0",
 
     # ── GitHub Integration ────────────────────────────────────────────
-    "pygithub>=2.1.1",
     "pyjwt>=2.10.1",
     "cryptography>=46.0.2",
 
@@ -30,11 +29,9 @@ dependencies = [
     # ── Graph Analysis ────────────────────────────────────────────────
     "networkx>=3.2.1",
 
-    # ── LLM Providers ─────────────────────────────────────────────────
-    "google-generativeai>=0.3.0",          # Gemini (default)
-    "openai>=1.0.0",                       # OpenAI
-    "anthropic>=0.30.0",                   # Anthropic
-    "groq>=0.11.0",                        # Groq
+    # ── LLM Providers & Embeddings ────────────────────────────────────
+    "litellm>=1.20.0",                     # LLM generation abstraction
+    "sentence-transformers>=2.3.0",        # Local embeddings (all-MiniLM-L6-v2)
 
     # ── Vector Database ───────────────────────────────────────────────
     "qdrant-client>=1.15.1",
@@ -49,14 +46,20 @@ dependencies = [
 
     # ── Observability ─────────────────────────────────────────────────
     "structlog>=24.0.0",
-    "prometheus-client>=0.20.0",
-    "opentelemetry-api>=1.20.0",
-    "opentelemetry-sdk>=1.20.0",
-    "opentelemetry-exporter-otlp>=1.20.0",
+    # OpenTelemetry core
+    "opentelemetry-api==1.39.1",
+    "opentelemetry-sdk==1.39.1",
+    "opentelemetry-semantic-conventions==0.60b1",
+    # OTel auto-instrumentation (creates spans automatically)
+    "opentelemetry-instrumentation-fastapi==0.60b1",
+    "opentelemetry-instrumentation-httpx==0.60b1",
+    "opentelemetry-instrumentation-celery==0.60b1",
+    "opentelemetry-instrumentation-redis==0.60b1",
 
     # ── Utilities ─────────────────────────────────────────────────────
     "python-dotenv>=1.0.0",
     "tenacity>=8.2.0",                     # Retry logic for LLM calls
+    "boto3>=1.34.0",                       # AWS SDK for SSM, SQS, CloudWatch
 ]
 
 [tool.uv]

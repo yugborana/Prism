@@ -52,8 +52,8 @@ ENV/local/bin/
 qdrant_data/
 postgres_data/
 redis_data/
-prometheus_data/
-monitoring/grafana/datasources/*.json
+temp_repos/
+keys/
 
 # OS files
 .DS_Store

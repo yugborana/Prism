@@ -43,8 +43,10 @@ from observability.metrics import (
     track_agent_task,
     findings_total,
 )
+from observability.tracing import get_tracer
 
 logger = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 class ReviewOrchestrator:
     """
@@ -73,20 +75,17 @@ class ReviewOrchestrator:
 
     @staticmethod
     def _connect_redis():
-        """Create an async Redis client for ReviewMemory's L2 cache.
+        """Get the shared async Redis client for ReviewMemory's L2 cache.
 
-        Returns None if Redis is unavailable — ReviewMemory will
+        Returns None if the pool isn't initialized — ReviewMemory will
         gracefully fall back to L1 (in-process dict) only.
         """
         try:
-            import redis.asyncio as redis_async
-            from utils.config import settings
-
-            return redis_async.from_url(
-                settings.redis_url,
-                decode_responses=True,
-                socket_connect_timeout=3,
-            )
+            from utils.connections import get_redis
+            redis = get_redis()
+            if redis is None:
+                logger.debug("redis_memory_pool_not_initialized_using_l1")
+            return redis
         except Exception as e:
             logger.warning("redis_memory_connect_failed", error=str(e))
             return None
@@ -104,115 +103,131 @@ class ReviewOrchestrator:
         self.state.pr_number = pr_data.get("number", 0)
         self.state.changed_files = pr_data.get("changed_files", [])
         self.state.diff_data = {"full_diff": pr_data.get("diff", "")}
+        self.state.has_repo_index = pr_data.get("has_repo_index", False)
 
-        # 1a. Load PRD content if configured
-        prd_content = ""
-        try:
-            from utils.config import settings as _settings
-            if _settings.prd_file_path:
-                import os
-                if os.path.isfile(_settings.prd_file_path):
-                    with open(_settings.prd_file_path, "r", encoding="utf-8") as f:
-                        prd_content = f.read()
-                    logger.info("prd_loaded", path=_settings.prd_file_path, size=len(prd_content))
-                else:
-                    logger.warning("prd_file_not_found", path=_settings.prd_file_path)
-        except Exception as e:
-            logger.warning("prd_load_failed", error=str(e))
+        with tracer.start_as_current_span(
+            "prism.orchestrator.run_review",
+            attributes={
+                "review.id": self.review_id,
+                "github.repo": self.state.repo_full_name,
+                "github.pr": self.state.pr_number,
+                "review.files_count": len(self.state.changed_files),
+            },
+        ) as review_span:
 
-        # Store PRD so it can be appended to context after ContextFetcher runs
-        self._prd_content = prd_content
+            # 1a. Load PRD content if configured
+            prd_content = ""
+            try:
+                from utils.config import settings as _settings
+                if _settings.prd_file_path:
+                    import os
+                    if os.path.isfile(_settings.prd_file_path):
+                        def _read_prd():
+                            with open(_settings.prd_file_path, "r", encoding="utf-8") as f:
+                                return f.read()
+                        prd_content = await asyncio.to_thread(_read_prd)
+                        logger.info("prd_loaded", path=_settings.prd_file_path, size=len(prd_content))
+                    else:
+                        logger.warning("prd_file_not_found", path=_settings.prd_file_path)
+            except Exception as e:
+                logger.warning("prd_load_failed", error=str(e))
 
-        # Store PR context in memory for cross-agent access
-        await self.memory.set("pr_context", {
-            "title": self.state.pr_title,
-            "description": self.state.pr_description,
-            "repo": self.state.repo_full_name,
-            "files": self.state.changed_files,
-        })
+            # Store PRD so it can be appended to context after ContextFetcher runs
+            self._prd_content = prd_content
 
-        # Log the review kickoff decision
-        self.decision_log.log(
-            agent_role="Orchestrator",
-            decision_type="review_started",
-            description=f"Review started for PR #{self.state.pr_number}",
-            rationale=f"PR event received for {self.state.repo_full_name}",
-            confidence=1.0,
-            metadata={"files_count": len(self.state.changed_files)},
-        )
+            # Store PR context in memory for cross-agent access
+            await self.memory.set("pr_context", {
+                "title": self.state.pr_title,
+                "description": self.state.pr_description,
+                "repo": self.state.repo_full_name,
+                "files": self.state.changed_files,
+            })
 
-        # 1b. Index PR diff into Qdrant so ContextFetcher has data to retrieve
-        try:
-            from services.vector_indexer import VectorIndexer
-            indexer = VectorIndexer()
-            index_counts = await indexer.index_pr_diff(
-                diff=pr_data.get("diff", ""),
-                changed_files=self.state.changed_files,
-                repo_name=self.state.repo_full_name,
-                pr_number=self.state.pr_number,
+            # Log the review kickoff decision
+            self.decision_log.log(
+                agent_role="Orchestrator",
+                decision_type="review_started",
+                description=f"Review started for PR #{self.state.pr_number}",
+                rationale=f"PR event received for {self.state.repo_full_name}",
+                confidence=1.0,
+                metadata={"files_count": len(self.state.changed_files)},
             )
-            logger.info("vector_index_complete", **index_counts)
-        except Exception as e:
-            logger.warning("vector_index_failed", error=str(e))
 
-        # 2. Build DAG
-        graph = self._build_graph()
+            # 1b. Index PR diff into Qdrant so ContextFetcher has data to retrieve
+            try:
+                from services.vector_indexer import VectorIndexer
+                indexer = VectorIndexer()
+                index_counts = await indexer.index_pr_diff(
+                    diff=pr_data.get("diff", ""),
+                    changed_files=self.state.changed_files,
+                    repo_name=self.state.repo_full_name,
+                    pr_number=self.state.pr_number,
+                )
+                logger.info("vector_index_complete", **index_counts)
+            except Exception as e:
+                logger.warning("vector_index_failed", error=str(e))
 
-        logger.info(
-            "review_started",
-            review_id=self.review_id,
-            pr=self.state.pr_number,
-            tasks=len(graph.tasks),
-        )
+            # 2. Build DAG
+            graph = self._build_graph()
 
-        # 3. Execute DAG (with Prometheus tracking)
-        with track_review(self.state.repo_full_name):
-            while not graph.is_complete():
-                ready_tasks = graph.get_ready_tasks()
-                if not ready_tasks:
-                    # Deadlock protection: if nothing is ready but the graph
-                    # isn't complete, skip all remaining PENDING tasks to
-                    # prevent an infinite spin.
-                    pending = [
-                        t for t in graph.tasks.values()
-                        if t.status == TaskStatus.PENDING
-                    ]
-                    if pending:
-                        for t in pending:
-                            logger.warning("task_skipped_deadlock", task=t.name)
-                            t.status = TaskStatus.SKIPPED
-                    break
+            logger.info(
+                "review_started",
+                review_id=self.review_id,
+                pr=self.state.pr_number,
+                tasks=len(graph.tasks),
+            )
 
-                await asyncio.gather(*[
-                    self._execute_task(task, graph) for task in ready_tasks
-                ])
+            # 3. Execute DAG (with Prometheus tracking)
+            with track_review(self.state.repo_full_name):
+                while not graph.is_complete():
+                    ready_tasks = graph.get_ready_tasks()
+                    if not ready_tasks:
+                        # Deadlock protection: if nothing is ready but the graph
+                        # isn't complete, skip all remaining PENDING tasks to
+                        # prevent an infinite spin.
+                        pending = [
+                            t for t in graph.tasks.values()
+                            if t.status == TaskStatus.PENDING
+                        ]
+                        if pending:
+                            for t in pending:
+                                logger.warning("task_skipped_deadlock", task=t.name)
+                                t.status = TaskStatus.SKIPPED
+                        break
 
-        # 5. Log completion
-        duration_ms = int((time.monotonic() - start_time) * 1000)
-        summary = graph.get_status_summary()
-        self.decision_log.log(
-            agent_role="Orchestrator",
-            decision_type="review_completed",
-            description=f"Review pipeline finished: {summary}",
-            rationale="All DAG tasks resolved",
-            confidence=1.0,
-        )
+                    await asyncio.gather(*[
+                        self._execute_task(task, graph) for task in ready_tasks
+                    ])
 
-        logger.info(
-            "review_completed",
-            review_id=self.review_id,
-            dag_summary=summary,
-            duration_ms=duration_ms,
-            decision_summary=self.decision_log.summary(),
-        )
+                # 5. Log completion
+                duration_ms = int((time.monotonic() - start_time) * 1000)
+                summary = graph.get_status_summary()
+                self.decision_log.log(
+                    agent_role="Orchestrator",
+                    decision_type="review_completed",
+                    description=f"Review pipeline finished: {summary}",
+                    rationale="All DAG tasks resolved",
+                    confidence=1.0,
+                )
 
-        # 6. Persist audit trail to PostgreSQL
-        await self._persist_audit_trail(duration_ms)
+                review_span.set_attribute("review.duration_ms", duration_ms)
+                review_span.set_attribute("review.dag_summary", summary)
 
-        # 7. Cleanup session memory
-        await self.memory.cleanup()
+                logger.info(
+                    "review_completed",
+                    review_id=self.review_id,
+                    dag_summary=summary,
+                    duration_ms=duration_ms,
+                    decision_summary=self.decision_log.summary(),
+                )
 
-        return self.state
+                # 6. Persist audit trail to PostgreSQL
+                await self._persist_audit_trail(duration_ms)
+
+                # 7. Cleanup session memory
+                await self.memory.cleanup()
+
+                return self.state
 
     def _build_graph(self) -> TaskGraph:
         """
@@ -268,7 +283,15 @@ class ReviewOrchestrator:
         task.mark_started()
         logger.info("task_started", task=task.name, role=task.agent_role)
 
-        with track_agent_task(task.agent_role):
+        # OTel span for each agent task — shows up as a child of run_review
+        with tracer.start_as_current_span(
+            f"prism.agent.{task.agent_role.lower()}",
+            attributes={
+                "agent.role": task.agent_role,
+                "agent.task_name": task.name,
+            },
+        ) as agent_span:
+          with track_agent_task(task.agent_role):
             try:
                 if task.agent_role == "ContextFetcher":
                     updates = await context_fetcher_agent(self.state)
@@ -352,11 +375,14 @@ class ReviewOrchestrator:
                     )
 
                 task.mark_completed({})
+                agent_span.set_attribute("agent.status", "completed")
                 logger.info("task_completed", task=task.name)
 
             except Exception as e:
                 logger.error("task_failed", task=task.name, error=str(e))
                 task.mark_failed(str(e))
+                agent_span.set_attribute("agent.status", "failed")
+                agent_span.record_exception(e)
 
                 # Log the failure decision
                 self.decision_log.log(
@@ -415,7 +441,7 @@ class ReviewOrchestrator:
                     pr_title=self.state.pr_title,
                     files_changed=len(self.state.changed_files),
                     llm_provider=settings.llm_provider,
-                    llm_model=settings.get_model_for_provider(),
+                    llm_model="prism-review",
                 )
 
                 # Persist all decision log entries

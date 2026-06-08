@@ -48,6 +48,33 @@ async def context_fetcher_agent(state: ReviewState) -> dict[str, Any]:
             code_graphs, import_files, learnings
         )
 
+        # ── Cross-file context from repo symbol index (Cursor pattern) ──
+        # Only query if the repo has been indexed (non-blocking: first PR
+        # won't have an index, second PR will).
+        cross_file_context = ""
+        if state.has_repo_index:
+            try:
+                from services.symbol_retriever import SymbolRetriever
+
+                symbol_retriever = SymbolRetriever()
+                cross_file_context = await asyncio.to_thread(
+                    symbol_retriever.format_cross_file_context,
+                    changed_files,
+                    state.repo_full_name,
+                )
+                logger.info(
+                    "cross_file_context_fetched",
+                    context_len=len(cross_file_context),
+                )
+            except Exception as xf_err:
+                logger.warning("cross_file_context_failed", error=str(xf_err))
+                cross_file_context = ""
+        else:
+            cross_file_context = (
+                "(Repo index building in background — "
+                "cross-file context will be available on next PR)"
+            )
+
         logger.info(
             "context_fetched",
             graphs=len(code_graphs),
@@ -55,11 +82,36 @@ async def context_fetcher_agent(state: ReviewState) -> dict[str, Any]:
             learnings=len(learnings),
         )
 
+        # ── Static Analysis Pre-Processing Layer ───────────────────────
+        # Runs tree-sitter over the diff's + lines to extract:
+        #   1. OWASP anti-patterns (SQLi, XSS, hardcoded secrets, etc.)
+        #   2. Structural metadata (function signatures, complexity, call graph)
+        # Results are injected into each agent's prompt as structured context,
+        # so the LLM validates what the static tool already found.
+        static_analysis: dict = {}
+        try:
+            from services.static_analyzer import StaticAnalyzer
+
+            diff_text = state.diff_data.get("full_diff", "")
+            if diff_text:
+                analyzer = StaticAnalyzer()
+                static_analysis = await asyncio.to_thread(analyzer.analyze_diff, diff_text)
+                logger.info(
+                    "static_analysis_complete",
+                    security_findings=static_analysis.get("security", {}).get("total_findings", 0),
+                    functions_found=len(static_analysis.get("tree_sitter", {}).get("functions", [])),
+                )
+        except Exception as sa_err:
+            logger.warning("static_analysis_failed", error=str(sa_err))
+            static_analysis = {}
+
         return {
             "code_graphs": code_graphs,
             "import_files": import_files,
             "learnings": learnings,
             "comprehensive_context": comprehensive_context,
+            "cross_file_context": cross_file_context,
+            "static_analysis": static_analysis,
             "context_fetcher_status": AgentStatus.COMPLETED,
         }
 
@@ -68,5 +120,7 @@ async def context_fetcher_agent(state: ReviewState) -> dict[str, Any]:
         return {
             "context_fetcher_status": AgentStatus.FAILED,
             "comprehensive_context": "",
+            "cross_file_context": "",
+            "static_analysis": {},
             "errors": [f"Context fetcher failed: {str(e)}"],
         }

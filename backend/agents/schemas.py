@@ -171,9 +171,14 @@ class ReviewState(BaseModel):
 
     # Context (populated by ContextFetcher)
     comprehensive_context: str = ""
+    cross_file_context: str = ""      # Cross-file callers/dependents from repo index
+    has_repo_index: bool = False       # Whether the repo has been indexed in Qdrant
     code_graphs: list[dict] = Field(default_factory=list)
     import_files: list[dict] = Field(default_factory=list)
     learnings: list[dict] = Field(default_factory=list)
+
+    # Static analysis (populated by ContextFetcher — pre-analysis layer)
+    static_analysis: dict = Field(default_factory=dict, description="tree-sitter structural analysis + OWASP findings")
 
     # Agent statuses
     context_fetcher_status: AgentStatus = AgentStatus.PENDING

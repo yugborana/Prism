@@ -9,9 +9,9 @@ queries, panels, and alerts).
 import json
 from typing import Any
 
-import httpx
 from observability.logging import get_logger
 from utils.config import settings
+from utils.connections import get_httpx_client
 
 logger = get_logger(__name__)
 
@@ -88,21 +88,21 @@ class DashboardService:
             "Authorization": f"Bearer {grafana_token}",
         }
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            try:
-                response = await client.post(url, json=dashboard_payload, headers=headers)
-                if response.status_code < 200 or response.status_code > 299:
-                    logger.error(
-                        "grafana_api_error",
-                        status=response.status_code,
-                        body=response.text[:500],
-                    )
-                    return {"error": f"Grafana API error ({response.status_code}): {response.text[:200]}"}
-                logger.info("grafana_dashboard_created", name=name)
-                return response.json()
-            except Exception as e:
-                logger.error("grafana_request_error", error=str(e))
-                return {"error": str(e)}
+        client = get_httpx_client()
+        try:
+            response = await client.post(url, json=dashboard_payload, headers=headers, timeout=30)
+            if response.status_code < 200 or response.status_code > 299:
+                logger.error(
+                    "grafana_api_error",
+                    status=response.status_code,
+                    body=response.text[:500],
+                )
+                return {"error": f"Grafana API error ({response.status_code}): {response.text[:200]}"}
+            logger.info("grafana_dashboard_created", name=name)
+            return response.json()
+        except Exception as e:
+            logger.error("grafana_request_error", error=str(e))
+            return {"error": str(e)}
 
     # ── Datadog ───────────────────────────────────────────────────────────
 
@@ -193,21 +193,21 @@ class DashboardService:
             "DD-APPLICATION-KEY": dd_app_key,
         }
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            try:
-                response = await client.post(url, json=dashboard_body, headers=headers)
-                if response.status_code < 200 or response.status_code > 299:
-                    logger.error(
-                        "datadog_dashboard_api_error",
-                        status=response.status_code,
-                        body=response.text[:500],
-                    )
-                    return {"error": f"Datadog API error ({response.status_code}): {response.text[:200]}"}
-                logger.info("datadog_dashboard_created", name=name)
-                return response.json()
-            except Exception as e:
-                logger.error("datadog_dashboard_request_error", error=str(e))
-                return {"error": str(e)}
+        client = get_httpx_client()
+        try:
+            response = await client.post(url, json=dashboard_body, headers=headers, timeout=30)
+            if response.status_code < 200 or response.status_code > 299:
+                logger.error(
+                    "datadog_dashboard_api_error",
+                    status=response.status_code,
+                    body=response.text[:500],
+                )
+                return {"error": f"Datadog API error ({response.status_code}): {response.text[:200]}"}
+            logger.info("datadog_dashboard_created", name=name)
+            return response.json()
+        except Exception as e:
+            logger.error("datadog_dashboard_request_error", error=str(e))
+            return {"error": str(e)}
 
     # ── Amplitude ─────────────────────────────────────────────────────────
 

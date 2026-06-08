@@ -70,6 +70,7 @@ jobs:
 
       - name: Install dependencies
         if: vars.PRISM_API_URL == ''
+        working-directory: backend
         run: pip install -e ".[dev]"
 
       - name: Run Prism Review (Lightweight CI)

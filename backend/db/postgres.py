@@ -39,12 +39,18 @@ def get_engine():
         _engine = create_async_engine(
             settings.database_url,
             echo=(settings.environment == "development"),
-            pool_size=5,
-            max_overflow=10,
+            pool_size=settings.asyncpg_pool_size,
+            max_overflow=settings.asyncpg_max_overflow,
             pool_pre_ping=True,
             pool_recycle=3600,
+            pool_timeout=30,
         )
-        logger.info("postgres_engine_created", url=settings.database_url.split("@")[-1])
+        logger.info(
+            "postgres_engine_created",
+            url=settings.database_url.split("@")[-1],
+            pool_size=settings.asyncpg_pool_size,
+            max_overflow=settings.asyncpg_max_overflow,
+        )
     return _engine
 
 

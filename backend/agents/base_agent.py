@@ -13,15 +13,17 @@ import json
 from abc import ABC, abstractmethod
 from typing import Any
 
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter
+
 
 from agents.reasoning import ReasoningChain
 from agents.schemas import ReviewState
 from observability.logging import get_logger
 from utils.config import settings
 from utils.llm_factory import LLMClient
+from observability.tracing import get_tracer
 
 logger = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 
 def _clean_json_response(text: str) -> str:
@@ -95,10 +97,17 @@ class BaseReviewAgent(ABC):
         chain = self.build_reasoning_chain()
 
         try:
+            # Format static analysis as a concise JSON string for prompts
+            static_analysis_str = ""
+            if state.static_analysis:
+                static_analysis_str = json.dumps(state.static_analysis, indent=2)
+
             result = await chain.execute(
                 call_llm=self.call_llm,
                 diff=state.diff_data.get("full_diff", ""),
                 context=state.comprehensive_context,
+                cross_file_context=state.cross_file_context,
+                static_analysis=static_analysis_str or "(No static analysis results available)",
                 pr_title=state.pr_title,
                 changed_files=", ".join(state.changed_files),
             )
@@ -119,26 +128,8 @@ class BaseReviewAgent(ABC):
     ) -> str:
         """
         Unified LLM call. Signature matches what ReasoningChain expects.
-        Retry is handled by _execute_with_retry().
+        Retries, backoff, and fallbacks are now handled by the LiteLLM Gateway.
         """
-        text = await self._execute_with_retry(
-            messages, temperature, max_tokens, response_format
-        )
-        return text
-
-    @retry(
-        wait=wait_exponential_jitter(initial=1, max=10),
-        stop=stop_after_attempt(3),
-        reraise=True,
-    )
-    async def _execute_with_retry(
-        self,
-        messages: list[dict[str, str]],
-        temperature: float,
-        max_tokens: int,
-        response_format: str | None,
-    ) -> str:
-        """Execute the LLM call with automatic retry on transient failures."""
         prompt = "\n".join(m["content"] for m in messages)
 
         system = self.system_prompt
@@ -148,27 +139,43 @@ class BaseReviewAgent(ABC):
                 "Do not include markdown formatting like ```json or any other text."
             )
 
-        try:
-            response_text = await self._llm_client.generate(
-                prompt=prompt,
-                system_prompt=system,
-            )
+        # OTel span for every LLM call — shows model, agent, and token usage
+        with tracer.start_as_current_span(
+            "prism.llm.call",
+            attributes={
+                "llm.agent": self.ROLE,
+                "llm.model": self._llm_client.model,
+                "llm.provider": self.provider,
+                "llm.temperature": temperature,
+                "llm.max_tokens": max_tokens,
+            },
+        ) as llm_span:
+            try:
+                response_text = await self._llm_client.generate(
+                    prompt=prompt,
+                    system_prompt=system,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
 
-            if response_format == "json_object":
-                response_text = _clean_json_response(response_text)
+                if response_format == "json_object":
+                    response_text = _clean_json_response(response_text)
 
-            logger.debug(
-                "llm_call_completed",
-                agent=self.ROLE,
-                response_length=len(response_text),
-            )
-            return response_text
+                llm_span.set_attribute("llm.response_length", len(response_text))
+                logger.debug(
+                    "llm_call_completed",
+                    agent=self.ROLE,
+                    response_length=len(response_text),
+                )
+                return response_text
 
-        except Exception as e:
-            logger.error(
-                "llm_call_failed",
-                agent=self.ROLE,
-                provider=self.provider,
-                error=str(e),
-            )
-            raise
+            except Exception as e:
+                llm_span.set_attribute("llm.status", "error")
+                llm_span.record_exception(e)
+                logger.error(
+                    "llm_call_failed",
+                    agent=self.ROLE,
+                    provider=self.provider,
+                    error=str(e),
+                )
+                raise

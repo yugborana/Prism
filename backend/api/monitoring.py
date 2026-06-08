@@ -37,6 +37,7 @@ class AnalyzeRequest(BaseModel):
     """Request to analyze a PR for dashboard or alert suggestions."""
     repo: str = Field(description="Full repository name (owner/repo)")
     pr_number: int = Field(description="PR number to analyze")
+    installation_id: int | None = Field(default=None, description="GitHub App installation ID (optional for local dev)")
 
 
 class CreateDashboardRequest(BaseModel):
@@ -76,7 +77,7 @@ async def analyze_dashboards(request: AnalyzeRequest, _=Depends(require_api_key)
 
     try:
         # Fetch PR data
-        gh = GitHubService()
+        gh = GitHubService(installation_id=request.installation_id)
         diff = await gh.fetch_pr_diff(request.repo, request.pr_number)
         changed_files = await gh.fetch_pr_files(request.repo, request.pr_number)
         pr_details = await gh.fetch_pr_details(request.repo, request.pr_number)
@@ -91,6 +92,13 @@ async def analyze_dashboards(request: AnalyzeRequest, _=Depends(require_api_key)
             diff_data={"full_diff": diff},
         )
 
+        # Populate context so the agent has full repo awareness
+        from agents.context_fetcher import context_fetcher_agent
+        ctx_updates = await context_fetcher_agent(state)
+        for k, v in ctx_updates.items():
+            if hasattr(state, k):
+                setattr(state, k, v)
+
         # Run dashboard agent
         agent = DashboardAgent()
         result = await agent.run(state)
@@ -98,7 +106,7 @@ async def analyze_dashboards(request: AnalyzeRequest, _=Depends(require_api_key)
         # Post suggestions as PR comments
         suggestions = result.get("suggestions", [])
         if suggestions:
-            comment_service = CommentService()
+            comment_service = CommentService(installation_id=request.installation_id)
             await comment_service.post_dashboard_suggestions(
                 request.repo, request.pr_number, suggestions
             )
@@ -151,7 +159,7 @@ async def analyze_alerts(request: AnalyzeRequest, _=Depends(require_api_key)) ->
     logger.info("alert_analysis_started", repo=request.repo, pr=request.pr_number)
 
     try:
-        gh = GitHubService()
+        gh = GitHubService(installation_id=request.installation_id)
         diff = await gh.fetch_pr_diff(request.repo, request.pr_number)
         changed_files = await gh.fetch_pr_files(request.repo, request.pr_number)
         pr_details = await gh.fetch_pr_details(request.repo, request.pr_number)
@@ -165,12 +173,19 @@ async def analyze_alerts(request: AnalyzeRequest, _=Depends(require_api_key)) ->
             diff_data={"full_diff": diff},
         )
 
+        # Populate context so the agent has full repo awareness
+        from agents.context_fetcher import context_fetcher_agent
+        ctx_updates = await context_fetcher_agent(state)
+        for k, v in ctx_updates.items():
+            if hasattr(state, k):
+                setattr(state, k, v)
+
         agent = AlertAgent()
         result = await agent.run(state)
 
         suggestions = result.get("suggestions", [])
         if suggestions:
-            comment_service = CommentService()
+            comment_service = CommentService(installation_id=request.installation_id)
             await comment_service.post_alert_suggestions(
                 request.repo, request.pr_number, suggestions
             )

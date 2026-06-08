@@ -101,13 +101,23 @@ class ReviewMemory:
         can check if the same code path has other issues.
         """
         findings_key = "shared_findings"
-        current = await self.get(findings_key, default=[])
+        
+        # Thread/Async-safe in-memory append
+        current = self._hot.setdefault(findings_key, [])
         current.append({
             "agent": agent_role,
             "finding": finding,
             "timestamp": datetime.now(UTC).isoformat(),
         })
-        await self.set(findings_key, current)
+        
+        # Best-effort sync to L2 (Redis) if available
+        if self._redis:
+            try:
+                redis_key = f"prism:review:{self.review_id}:{findings_key}"
+                serialized = json.dumps(current, default=str)
+                await self._redis.setex(redis_key, 3600, serialized)
+            except Exception as e:
+                logger.debug("redis_set_failed", key=findings_key, error=str(e))
 
     async def get_shared_findings(self) -> list[dict[str, Any]]:
         """Get all findings shared by other agents."""

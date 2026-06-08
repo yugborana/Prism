@@ -9,7 +9,6 @@ Enables parallel execution of review agents while respecting dependencies.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
@@ -98,7 +97,7 @@ class TaskGraph:
                 continue
             deps = list(self.graph.predecessors(task_id))
             all_resolved = all(
-                self.tasks[dep].status in (TaskStatus.COMPLETED, TaskStatus.FAILED)
+                self.tasks[dep].status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SKIPPED)
                 for dep in deps
             )
             if all_resolved:
@@ -106,9 +105,9 @@ class TaskGraph:
         return ready
 
     def has_failed_dependency(self, task: Task) -> bool:
-        """Check if any of this task's upstream dependencies failed."""
+        """Check if any of this task's upstream dependencies failed or were skipped."""
         deps = list(self.graph.predecessors(task.id))
-        return any(self.tasks[dep].status == TaskStatus.FAILED for dep in deps)
+        return any(self.tasks[dep].status in (TaskStatus.FAILED, TaskStatus.SKIPPED) for dep in deps)
 
     def is_complete(self) -> bool:
         return all(

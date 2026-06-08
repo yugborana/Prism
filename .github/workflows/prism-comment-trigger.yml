@@ -92,6 +92,7 @@ jobs:
 
       - name: Install dependencies
         if: vars.PRISM_API_URL == ''
+        working-directory: backend
         run: pip install -e ".[dev]"
 
       - name: Run Prism Check (Lightweight CI)
@@ -152,6 +153,7 @@ jobs:
           from services.comment_service import CommentService
           from agents.dashboard_agent import DashboardAgent
           from agents.schemas import ReviewState
+          from agents.context_fetcher import context_fetcher_agent
 
           async def main():
               gh = GitHubService()
@@ -170,6 +172,10 @@ jobs:
                   changed_files=changed_files,
                   diff_data={'full_diff': diff},
               )
+              
+              fetch_updates = await context_fetcher_agent(state)
+              for k, v in fetch_updates.items():
+                  setattr(state, k, v)
 
               agent = DashboardAgent()
               result = await agent.run(state)
@@ -200,6 +206,7 @@ jobs:
           from services.comment_service import CommentService
           from agents.alert_agent import AlertAgent
           from agents.schemas import ReviewState
+          from agents.context_fetcher import context_fetcher_agent
 
           async def main():
               gh = GitHubService()
@@ -218,6 +225,10 @@ jobs:
                   changed_files=changed_files,
                   diff_data={'full_diff': diff},
               )
+
+              fetch_updates = await context_fetcher_agent(state)
+              for k, v in fetch_updates.items():
+                  setattr(state, k, v)
 
               agent = AlertAgent()
               result = await agent.run(state)
