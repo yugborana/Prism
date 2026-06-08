@@ -79,10 +79,20 @@ jobs:
             fi
             cd /home/ec2-user/prism
             git pull origin main
-            docker compose build --no-cache fastapi celery celery-beat
+            docker compose build fastapi celery celery-beat
             docker compose up -d --no-deps fastapi celery celery-beat
             docker compose ps
             
-            # Simple health check
-            sleep 10
-            curl -f http://localhost:8000/api/health || { echo "Deployment failed health check"; exit 1; }
+            # Health check with retries (t3.micro needs ~30-45s to boot)
+            echo "Waiting for FastAPI to become healthy..."
+            for i in $(seq 1 12); do
+              sleep 5
+              if curl -sf http://localhost:8000/api/health > /dev/null 2>&1; then
+                echo "Health check passed on attempt $i"
+                exit 0
+              fi
+              echo "Attempt $i/12 — not ready yet..."
+            done
+            echo "Deployment failed health check after 60s"
+            docker compose logs --tail=50 fastapi
+            exit 1
