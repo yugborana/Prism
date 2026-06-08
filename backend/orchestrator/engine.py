@@ -15,7 +15,7 @@ Central coordinator that:
 
 import asyncio
 import time
-from typing import Any
+from typing import Any, cast
 
 from agents.schemas import (
     AgentStatus,
