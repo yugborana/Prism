@@ -1,7 +1,9 @@
 """
 Prism GitHub Webhook Router.
 
-Receives events from GitHub (pull_request opened/synchronized).
+Receives events from GitHub:
+  - pull_request (opened/synchronized) → automatic review
+  - issue_comment (created) → on-demand review via "/prism-review" comment
 
 Security:
   1. HMAC-SHA256 signature verification (X-Hub-Signature-256)
@@ -150,7 +152,14 @@ async def github_webhook(
         payload = await request.json()
         action = payload.get("action")
 
-        # ── Step 2: Filter for Pull Request events ────────────────────────
+        # ── Route: PR Comment trigger ("/prism-review") ───────────────────
+        # When a user comments "/prism-review" on any PR, GitHub sends an
+        # issue_comment event. We extract the PR number from the issue URL
+        # and enqueue a review — same pipeline as the automatic trigger.
+        if x_github_event == "issue_comment" and action == "created":
+            return await _handle_comment_trigger(payload, correlation_id, x_github_delivery)
+
+        # ── Route: Pull Request events (opened / synchronized) ────────────
         if x_github_event != "pull_request" or action not in ("opened", "synchronize"):
             webhook_requests_total.labels(
                 event_type=x_github_event or "unknown", status="ignored"
@@ -203,6 +212,79 @@ async def github_webhook(
 
         # ── Step 6: Return 200 immediately ────────────────────────────────
         return {"status": "queued", "task_id": task.id, "pr": pr_number}
+
+
+# ── Comment Trigger Handler ──────────────────────────────────────────────
+# Trigger keyword (case-insensitive). Users type this as a PR comment.
+_TRIGGER_KEYWORD = "/prism-review"
+
+
+async def _handle_comment_trigger(
+    payload: dict,
+    correlation_id: str,
+    delivery_id: str | None,
+) -> dict:
+    """Handle a /prism-review comment on a PR.
+
+    GitHub sends `issue_comment` for both Issue and PR comments.
+    We detect PRs by checking for `pull_request` in the issue object.
+    """
+    comment_body = payload.get("comment", {}).get("body", "").strip().lower()
+    issue = payload.get("issue", {})
+    repo = payload.get("repository", {})
+    repo_name = repo.get("full_name", "")
+
+    # ── Only respond to the trigger keyword ───────────────────────────
+    if _TRIGGER_KEYWORD not in comment_body:
+        webhook_requests_total.labels(
+            event_type="issue_comment", status="ignored"
+        ).inc()
+        return {"status": "ignored", "reason": "no trigger keyword"}
+
+    # ── Only handle PR comments (not Issue comments) ──────────────────
+    # GitHub includes a `pull_request` key in the issue object only for PRs.
+    if "pull_request" not in issue:
+        webhook_requests_total.labels(
+            event_type="issue_comment", status="ignored"
+        ).inc()
+        return {"status": "ignored", "reason": "comment is on an issue, not a PR"}
+
+    pr_number = issue["number"]
+
+    # ── Idempotency ───────────────────────────────────────────────────
+    if await _is_duplicate_delivery(delivery_id):
+        webhook_requests_total.labels(
+            event_type="issue_comment", status="duplicate"
+        ).inc()
+        return {"status": "duplicate", "delivery_id": delivery_id}
+
+    logger.info(
+        "comment_trigger_accepted",
+        repo=repo_name,
+        pr=pr_number,
+        commenter=payload.get("comment", {}).get("user", {}).get("login", ""),
+        delivery_id=delivery_id,
+    )
+    webhook_requests_total.labels(
+        event_type="issue_comment", status="accepted"
+    ).inc()
+
+    # ── Enqueue review ────────────────────────────────────────────────
+    pr_data = {
+        "number": pr_number,
+        "repo_name": repo_name,
+        "title": issue.get("title", ""),
+        "body": issue.get("body", ""),
+        "installation_id": payload.get("installation", {}).get("id"),
+        "base_branch": "main",  # Worker will fetch actual base from PR details
+        "correlation_id": correlation_id,
+        "trace_context": inject_trace_context(),
+    }
+
+    task = process_pr_review.delay(pr_data)
+    logger.info("review_enqueued_via_comment", task_id=task.id, pr=pr_number)
+
+    return {"status": "queued", "task_id": task.id, "pr": pr_number, "trigger": "comment"}
 
 
 # ── Manual Test Endpoint ─────────────────────────────────────────────────
