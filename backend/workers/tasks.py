@@ -128,7 +128,19 @@ def process_pr_review(self, pr_data: dict[str, Any]):
 
     # Celery tasks are synchronous by default, so we run the async orchestrator
     # using a dedicated event loop. Always create a new one — Celery worker
-    # processes don't have a running asyncio loop
+    # processes don't have a running asyncio loop.
+    # Use a helper to avoid "Event loop is closed" errors from httpx HTTP/2
+    # connection cleanup during retries.
+    def _run_async(coro):
+        """Run an async coroutine in a fresh event loop to avoid lifecycle issues."""
+        _loop = asyncio.new_event_loop()
+        try:
+            return _loop.run_until_complete(coro)
+        finally:
+            # Shut down async generators and executor before closing
+            _loop.run_until_complete(_loop.shutdown_asyncgens())
+            _loop.close()
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -153,9 +165,9 @@ def process_pr_review(self, pr_data: dict[str, Any]):
                 pr_number = pr_data["number"]
 
                 if "diff" not in pr_data:
-                    pr_data["diff"] = loop.run_until_complete(gh.fetch_pr_diff(repo_name, pr_number))
+                    pr_data["diff"] = _run_async(gh.fetch_pr_diff(repo_name, pr_number))
                 if "changed_files" not in pr_data:
-                    pr_data["changed_files"] = loop.run_until_complete(gh.fetch_pr_files(repo_name, pr_number))
+                    pr_data["changed_files"] = _run_async(gh.fetch_pr_files(repo_name, pr_number))
                 logger.info(
                     "worker_fetched_pr_data",
                     review_id=review_id,
@@ -171,8 +183,8 @@ def process_pr_review(self, pr_data: dict[str, Any]):
                 from services.simhash import SimHashIndex
 
                 simhash_idx = SimHashIndex()
-                index_status = loop.run_until_complete(simhash_idx.check_index_status(pr_data.get("repo_name", "")))
-                loop.run_until_complete(simhash_idx.close())
+                index_status = _run_async(simhash_idx.check_index_status(pr_data.get("repo_name", "")))
+                _run_async(simhash_idx.close())
 
                 if index_status == "fresh":
                     pr_data["has_repo_index"] = True
@@ -209,7 +221,7 @@ def process_pr_review(self, pr_data: dict[str, Any]):
 
             orchestrator = ReviewOrchestrator(review_id=review_id)
             # Run the full review
-            result_state = loop.run_until_complete(orchestrator.run_review(pr_data))
+            result_state = _run_async(orchestrator.run_review(pr_data))
 
             # Post the final aggregated review back to GitHub
             if result_state.final_review:
@@ -221,7 +233,7 @@ def process_pr_review(self, pr_data: dict[str, Any]):
                         repo=result_state.repo_full_name,
                         pr=result_state.pr_number,
                     )
-                    loop.run_until_complete(
+                    _run_async(
                         github_service.post_review(
                             repo_full_name=result_state.repo_full_name,
                             pr_number=result_state.pr_number,
@@ -241,12 +253,10 @@ def process_pr_review(self, pr_data: dict[str, Any]):
                     # Run Dashboard Agent and post suggestions
                     try:
                         dashboard_agent = DashboardAgent()
-                        dash_result = loop.run_until_complete(dashboard_agent.run(result_state))
+                        dash_result = _run_async(dashboard_agent.run(result_state))
                         dash_suggestions = dash_result.get("suggestions", [])
                         if dash_suggestions:
-                            loop.run_until_complete(
-                                comment_svc.post_dashboard_suggestions(repo, pr_num, dash_suggestions)
-                            )
+                            _run_async(comment_svc.post_dashboard_suggestions(repo, pr_num, dash_suggestions))
                             logger.info("dashboard_suggestions_posted", count=len(dash_suggestions))
                     except Exception as dash_err:
                         logger.warning("dashboard_suggestions_failed", error=str(dash_err))
@@ -254,10 +264,10 @@ def process_pr_review(self, pr_data: dict[str, Any]):
                     # Run Alert Agent and post suggestions
                     try:
                         alert_agent = AlertAgent()
-                        alert_result = loop.run_until_complete(alert_agent.run(result_state))
+                        alert_result = _run_async(alert_agent.run(result_state))
                         alert_suggestions = alert_result.get("suggestions", [])
                         if alert_suggestions:
-                            loop.run_until_complete(comment_svc.post_alert_suggestions(repo, pr_num, alert_suggestions))
+                            _run_async(comment_svc.post_alert_suggestions(repo, pr_num, alert_suggestions))
                             logger.info("alert_suggestions_posted", count=len(alert_suggestions))
                     except Exception as alert_err:
                         logger.warning("alert_suggestions_failed", error=str(alert_err))

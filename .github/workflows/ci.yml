@@ -76,11 +76,15 @@ jobs:
             if [ ! -d "/home/ec2-user/prism" ]; then
               echo "First deployment — cloning repository..."
               git clone https://github.com/${{ github.repository }}.git /home/ec2-user/prism
+              cd /home/ec2-user/prism
+              echo "Starting ALL services (first deploy)..."
+              docker compose up -d --build
+            else
+              cd /home/ec2-user/prism
+              git pull origin main
+              docker compose build fastapi celery celery-beat
+              docker compose up -d --no-deps fastapi celery celery-beat
             fi
-            cd /home/ec2-user/prism
-            git pull origin main
-            docker compose build fastapi celery celery-beat
-            docker compose up -d --no-deps fastapi celery celery-beat
             docker compose ps
             
             # Health check with retries (t3.micro needs ~30-45s to boot)
