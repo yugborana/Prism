@@ -18,6 +18,8 @@ References:
 
 import asyncio
 import time
+
+import httpx
 import uuid
 import json
 from datetime import datetime, timezone
@@ -292,7 +294,12 @@ def process_pr_review(self, pr_data: dict[str, Any]):
 
         except Exception as exc:
             # ── Permanent errors: skip retry, route to DLQ immediately ────
-            if isinstance(exc, _PERMANENT_EXCEPTIONS):
+            # Also treat HTTP 401/403 as permanent (bad credentials, not transient)
+            is_permanent = isinstance(exc, _PERMANENT_EXCEPTIONS)
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403, 404, 422):
+                is_permanent = True
+
+            if is_permanent:
                 logger.error(
                     "celery_task_failed_permanent",
                     review_id=review_id,
