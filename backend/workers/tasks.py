@@ -32,7 +32,6 @@ from pydantic import ValidationError
 from workers.celery_app import celery_app
 from orchestrator.engine import ReviewOrchestrator
 from services.github_service import GitHubService
-from services.comment_service import CommentService
 from utils.config import settings
 from observability.logging import get_logger, bind_correlation_id, clear_correlation_context
 from observability.metrics import dlq_tasks_total, dlq_depth, review_e2e_seconds, celery_task_retries_total
@@ -238,7 +237,6 @@ def process_pr_review(self, pr_data: dict[str, Any]):
                     logger.info("review_posted_to_github_successfully", review_id=review_id)
                 except Exception as post_err:
                     logger.error("github_post_review_failed", review_id=review_id, error=str(post_err))
-
 
             else:
                 logger.warning("no_final_review_available_to_post", review_id=review_id)
