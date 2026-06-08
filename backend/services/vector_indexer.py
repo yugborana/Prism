@@ -18,6 +18,11 @@ import uuid
 from observability.logging import get_logger
 from utils.qdrant_client import get_qdrant_client
 
+# Deterministic namespace for generating reproducible Qdrant point IDs.
+# Same (repo + file + PR) always produces the same UUID, so re-running
+# /prism-review on the same commit overwrites instead of duplicating.
+_QDRANT_NS = uuid.UUID("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+
 logger = get_logger(__name__)
 
 
@@ -209,7 +214,7 @@ class VectorIndexer:
             return
 
         point = PointStruct(
-            id=str(uuid.uuid4()),
+            id=str(uuid.uuid5(_QDRANT_NS, f"{repo_name}:{code_graph['file_path']}:cg:{pr_number}")),
             vector=embedding,
             payload={
                 **code_graph,
@@ -241,7 +246,7 @@ class VectorIndexer:
             return
 
         point = PointStruct(
-            id=str(uuid.uuid4()),
+            id=str(uuid.uuid5(_QDRANT_NS, f"{repo_name}:{file_path}:imp:{pr_number}")),
             vector=embedding,
             payload={
                 "file_path": file_path,
