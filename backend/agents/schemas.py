@@ -178,6 +178,10 @@ class ReviewState(BaseModel):
     comprehensive_context: str = ""
     cross_file_context: str = ""  # Cross-file callers/dependents from repo index
     file_context: str = ""  # Full or compressed file source for accurate line references
+    per_file_contexts: dict[str, str] = Field(
+        default_factory=dict,
+        description="Per-file source context: file_path -> formatted source (full or compressed)",
+    )
     has_repo_index: bool = False  # Whether the repo has been indexed in Qdrant
     code_graphs: list[dict] = Field(default_factory=list)
     import_files: list[dict] = Field(default_factory=list)

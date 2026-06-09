@@ -21,71 +21,88 @@ _FULL_FILE_THRESHOLD = 500
 _SURROUNDING_LINES = 30
 
 
+def _build_single_file_context(
+    file_path: str,
+    content: str,
+    diff_text: str,
+) -> str:
+    """Build context string for a single file using compression strategy.
+
+    - Small files (≤500 lines): include full numbered source
+    - Large files (>500 lines): include diff hunks + 30 surrounding lines
+    """
+    from services.diff_parser import parse_diff_valid_lines
+
+    lines = content.split("\n")
+    total_lines = len(lines)
+
+    if total_lines <= _FULL_FILE_THRESHOLD:
+        # Small file → include full numbered source
+        parts = [f"### {file_path} ({total_lines} lines — full file)", "```"]
+        for i, line in enumerate(lines, 1):
+            parts.append(f"L{i:>4}: {line}")
+        parts.append("```")
+        return "\n".join(parts)
+
+    # Large file → include only hunks + surrounding context
+    diff_info = parse_diff_valid_lines(diff_text)
+    file_info = diff_info.get(file_path)
+    if not file_info or not file_info.hunks:
+        return f"### {file_path} ({total_lines} lines — too large, no diff hunks available)"
+
+    parts = [f"### {file_path} ({total_lines} lines — showing diff regions + {_SURROUNDING_LINES} surrounding lines)"]
+
+    # Merge hunk ranges with surrounding context
+    shown_ranges: list[tuple[int, int]] = []
+    for hunk_start, hunk_end in file_info.hunks:
+        range_start = max(1, hunk_start - _SURROUNDING_LINES)
+        range_end = min(total_lines, hunk_end + _SURROUNDING_LINES)
+        if shown_ranges and range_start <= shown_ranges[-1][1] + 1:
+            shown_ranges[-1] = (shown_ranges[-1][0], range_end)
+        else:
+            shown_ranges.append((range_start, range_end))
+
+    parts.append("```")
+    for i, (start, end) in enumerate(shown_ranges):
+        if i > 0:
+            parts.append(f"  ... (lines {shown_ranges[i - 1][1] + 1}-{start - 1} omitted) ...")
+        for line_num in range(start, end + 1):
+            if line_num <= total_lines:
+                parts.append(f"L{line_num:>4}: {lines[line_num - 1]}")
+    parts.append("```")
+    return "\n".join(parts)
+
+
+def _build_per_file_contexts(
+    file_contents: dict[str, str],
+    diff_text: str,
+) -> dict[str, str]:
+    """Build per-file context dict for per-file review.
+
+    Returns dict mapping file_path -> that file's formatted source context.
+    """
+    result: dict[str, str] = {}
+    for file_path, content in file_contents.items():
+        result[file_path] = _build_single_file_context(file_path, content, diff_text)
+    return result
+
+
 def _build_file_context(
     file_contents: dict[str, str],
     diff_text: str,
 ) -> str:
-    """Build file context string using compression strategy.
+    """Build combined file context string (all files together).
 
-    - Small files (≤500 lines): include full numbered source
-    - Large files (>500 lines): include diff hunks + 30 surrounding lines
-
-    Returns a formatted string for injection into agent prompts.
+    Used as fallback when per-file contexts aren't available.
     """
     if not file_contents:
         return "(Full file context not available)"
 
-    # Parse the diff to get hunk ranges for the compression strategy
-    from services.diff_parser import parse_diff_valid_lines
+    per_file = _build_per_file_contexts(file_contents, diff_text)
+    if not per_file:
+        return "(Full file context not available)"
 
-    diff_info = parse_diff_valid_lines(diff_text)
-
-    parts: list[str] = []
-
-    for file_path, content in file_contents.items():
-        lines = content.split("\n")
-        total_lines = len(lines)
-
-        if total_lines <= _FULL_FILE_THRESHOLD:
-            # Small file → include full numbered source
-            parts.append(f"\n### {file_path} ({total_lines} lines — full file)")
-            parts.append("```")
-            for i, line in enumerate(lines, 1):
-                parts.append(f"L{i:>4}: {line}")
-            parts.append("```")
-        else:
-            # Large file → include only hunks + surrounding context
-            file_info = diff_info.get(file_path)
-            if not file_info or not file_info.hunks:
-                # No hunks found in diff for this file — skip
-                parts.append(f"\n### {file_path} ({total_lines} lines — too large, no diff hunks)")
-                continue
-
-            parts.append(
-                f"\n### {file_path} ({total_lines} lines — showing diff regions + {_SURROUNDING_LINES} surrounding lines)"
-            )
-
-            # Merge hunk ranges with surrounding context
-            shown_ranges: list[tuple[int, int]] = []
-            for hunk_start, hunk_end in file_info.hunks:
-                range_start = max(1, hunk_start - _SURROUNDING_LINES)
-                range_end = min(total_lines, hunk_end + _SURROUNDING_LINES)
-                # Merge with previous range if overlapping
-                if shown_ranges and range_start <= shown_ranges[-1][1] + 1:
-                    shown_ranges[-1] = (shown_ranges[-1][0], range_end)
-                else:
-                    shown_ranges.append((range_start, range_end))
-
-            parts.append("```")
-            for i, (start, end) in enumerate(shown_ranges):
-                if i > 0:
-                    parts.append(f"  ... (lines {shown_ranges[i - 1][1] + 1}-{start - 1} omitted) ...")
-                for line_num in range(start, end + 1):
-                    if line_num <= total_lines:
-                        parts.append(f"L{line_num:>4}: {lines[line_num - 1]}")
-            parts.append("```")
-
-    return "\n".join(parts) if parts else "(Full file context not available)"
+    return "\n\n".join(per_file.values())
 
 
 async def context_fetcher_agent(state: ReviewState) -> dict[str, Any]:
@@ -173,7 +190,9 @@ async def context_fetcher_agent(state: ReviewState) -> dict[str, Any]:
         # Fetches source code from GitHub for each changed file so agents
         # can see exact line numbers. Small files get full content, large
         # files get diff hunks + surrounding context only.
+        # Builds BOTH aggregated file_context AND per_file_contexts.
         file_context = ""
+        per_file_contexts: dict[str, str] = {}
         try:
             if state.installation_id and state.head_sha and changed_files:
                 from services.github_service import GitHubService
@@ -185,15 +204,18 @@ async def context_fetcher_agent(state: ReviewState) -> dict[str, Any]:
                     commit_sha=state.head_sha,
                 )
                 diff_text = state.diff_data.get("full_diff", "")
-                file_context = _build_file_context(file_contents, diff_text)
+                per_file_contexts = _build_per_file_contexts(file_contents, diff_text)
+                file_context = "\n\n".join(per_file_contexts.values()) if per_file_contexts else ""
                 logger.info(
                     "file_context_built",
                     files_fetched=len(file_contents),
+                    per_file_count=len(per_file_contexts),
                     context_len=len(file_context),
                 )
         except Exception as fc_err:
             logger.warning("file_context_fetch_failed", error=str(fc_err))
             file_context = ""
+            per_file_contexts = {}
 
         return {
             "code_graphs": code_graphs,
@@ -202,6 +224,7 @@ async def context_fetcher_agent(state: ReviewState) -> dict[str, Any]:
             "comprehensive_context": comprehensive_context,
             "cross_file_context": cross_file_context,
             "file_context": file_context,
+            "per_file_contexts": per_file_contexts,
             "static_analysis": static_analysis,
             "context_fetcher_status": AgentStatus.COMPLETED,
         }
@@ -213,6 +236,7 @@ async def context_fetcher_agent(state: ReviewState) -> dict[str, Any]:
             "comprehensive_context": "",
             "cross_file_context": "",
             "file_context": "",
+            "per_file_contexts": {},
             "static_analysis": {},
             "errors": [f"Context fetcher failed: {str(e)}"],
         }

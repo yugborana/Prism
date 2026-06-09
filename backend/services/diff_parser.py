@@ -24,6 +24,40 @@ _HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 # Matches diff file headers: diff --git a/path b/path  OR  +++ b/path
 _FILE_RE = re.compile(r"^\+\+\+ b/(.+)")
 
+# Matches the start of a new file in a unified diff
+_DIFF_HEADER_RE = re.compile(r"^diff --git a/")
+
+
+def split_diff_by_file(diff_text: str) -> dict[str, str]:
+    """Split a unified diff into per-file diffs.
+
+    Returns a dict mapping file_path -> that file's complete diff section
+    (including the diff --git header, ---, +++, and all hunks).
+    """
+    files: dict[str, str] = {}
+    current_file: str | None = None
+    current_lines: list[str] = []
+
+    for line in diff_text.split("\n"):
+        if _DIFF_HEADER_RE.match(line):
+            # Save previous file's diff
+            if current_file and current_lines:
+                files[current_file] = "\n".join(current_lines)
+            current_lines = [line]
+            current_file = None  # Will be set by +++ line
+        else:
+            current_lines.append(line)
+            # Detect file path from +++ line
+            file_match = _FILE_RE.match(line)
+            if file_match:
+                current_file = file_match.group(1)
+
+    # Save last file
+    if current_file and current_lines:
+        files[current_file] = "\n".join(current_lines)
+
+    return files
+
 
 @dataclass
 class DiffFileInfo:
