@@ -4,6 +4,7 @@ services:
   fastapi:
     build:
       context: ./backend
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
@@ -26,6 +27,7 @@ services:
   celery:
     build:
       context: ./backend
+    restart: unless-stopped
     environment:
       - ENVIRONMENT=production
       - REDIS_URL=redis://redis:6379/0
@@ -49,6 +51,7 @@ services:
   celery-beat:
     build:
       context: ./backend
+    restart: unless-stopped
     environment:
       - ENVIRONMENT=production
       - REDIS_URL=redis://redis:6379/0
@@ -67,6 +70,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
@@ -75,6 +79,7 @@ services:
 
   qdrant:
     image: qdrant/qdrant:latest
+    restart: unless-stopped
     ports:
       - "6333:6333"
     volumes:
