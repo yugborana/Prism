@@ -124,21 +124,49 @@ async def aggregator_agent(state: ReviewState) -> dict[str, Any]:
 
 
 def _build_inline_comments(findings: list[CodeFinding]) -> list[InlineComment]:
-    """Convert CodeFindings into GitHub inline comments."""
-    comments = []
+    """Convert CodeFindings into GitHub inline comments, picking the most severe issue per line."""
+    # Group findings by (path, line)
+    grouped: dict[tuple[str, int], list[CodeFinding]] = {}
     for f in findings:
+        # Ignore findings without a line number
+        if f.line_number is None or f.line_number <= 0:
+            continue
+
+        key = (f.file_path, f.line_number)
+        if key not in grouped:
+            grouped[key] = []
+
+        # Prevent exact duplicates (same description)
+        if not any(existing.description.strip().lower() == f.description.strip().lower() for existing in grouped[key]):
+            grouped[key].append(f)
+
+    # Precedence map for severity (lower number = higher severity)
+    severity_rank = {
+        "CRITICAL": 1,
+        "HIGH": 2,
+        "MEDIUM": 3,
+        "LOW": 4,
+        "INFO": 5,
+    }
+
+    comments = []
+    for (path, line), line_findings in grouped.items():
+        # Sort findings by severity (most severe first)
+        line_findings.sort(key=lambda f: severity_rank.get(f.severity.value, 99))
+
+        # Pick ONLY the most severe finding for this line
+        f = line_findings[0]
+
         body = f"**{f.severity.value}** — {f.category}\n\n{f.description}"
         if f.current_code:
             body += f"\n\n**Current code:**\n```\n{f.current_code}\n```"
 
-        suggestion = None
-        if f.suggested_fix:
-            suggestion = f.suggested_fix
+        suggestion = f.suggested_fix if f.suggested_fix else None
 
         comments.append(
             InlineComment(
-                path=f.file_path,
-                line=f.line_number,
+                path=path,
+                line=line,
                 body=body,
                 suggestion=suggestion,
             )
