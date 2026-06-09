@@ -9,7 +9,6 @@ Focused purely on code review responsibilities:
 
 from __future__ import annotations
 
-import asyncio
 import json
 from abc import ABC, abstractmethod
 from typing import Any
@@ -88,9 +87,10 @@ class BaseReviewAgent(ABC):
         """
         Execute this agent's review using per-file strategy.
 
-        Instead of reviewing all files at once (which dilutes attention on
-        large PRs), we split the diff by file and run the reasoning chain
-        once per file in parallel. Results are merged at the end.
+        Files are reviewed SEQUENTIALLY within each agent to avoid
+        rate-limit explosions (4 agents already run in parallel via
+        the DAG — adding file-level parallelism caused 8+ concurrent
+        LLM streams which exceeded Groq's 30 RPM limit).
 
         Falls back to single-pass for single-file PRs or if splitting fails.
         """
@@ -104,33 +104,53 @@ class BaseReviewAgent(ABC):
             if len(per_file_diffs) <= 1:
                 return await self._run_single_pass(state, raw_diff)
 
-            # Multiple files → run per-file in parallel
+            # Multiple files → run per-file SEQUENTIALLY
+            # (4 agents run in parallel via DAG — that's enough concurrency)
             logger.info(
                 "per_file_review_start",
                 agent=self.ROLE,
                 file_count=len(per_file_diffs),
             )
 
-            tasks = []
+            file_results: list[dict[str, Any]] = []
+            failed_files: list[str] = []
+
             for file_path, file_diff in per_file_diffs.items():
-                tasks.append(
-                    self._run_for_file(
+                try:
+                    result = await self._run_for_file(
                         file_path=file_path,
                         file_diff=file_diff,
                         state=state,
                     )
+                    file_results.append(result)
+                except Exception as file_err:
+                    logger.error(
+                        "per_file_review_failed",
+                        agent=self.ROLE,
+                        file=file_path,
+                        error=str(file_err),
+                    )
+                    failed_files.append(file_path)
+                    # Continue to next file — don't lose all findings
+                    continue
+
+            if not file_results:
+                # All files failed — fall back to single-pass
+                logger.warning(
+                    "all_per_file_reviews_failed_fallback",
+                    agent=self.ROLE,
+                    failed_files=failed_files,
                 )
+                return await self._run_single_pass(state, raw_diff)
 
-            # Run all files in parallel
-            file_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # Merge results from all files
-            merged = self._merge_file_results(file_results, per_file_diffs)
+            # Merge results from all successful files
+            merged = self._merge_file_results(file_results)
 
             logger.info(
                 "per_file_review_complete",
                 agent=self.ROLE,
-                files_reviewed=len(per_file_diffs),
+                files_reviewed=len(file_results),
+                files_failed=len(failed_files),
                 total_findings=len(merged.get("findings", [])),
             )
 
@@ -220,31 +240,20 @@ class BaseReviewAgent(ABC):
 
     def _merge_file_results(
         self,
-        file_results: list[dict[str, Any] | BaseException],
-        per_file_diffs: dict[str, str],
+        file_results: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """Merge per-file results into a single agent report.
 
         Concatenates findings lists and joins summaries.
+        Only receives successful results (failures handled in run()).
         """
         merged_findings: list[dict] = []
         summaries: list[str] = []
-        file_paths = list(per_file_diffs.keys())
 
-        # Collect non-finding fields from the first successful result as template
+        # Collect non-finding fields from the first result as template
         template: dict[str, Any] = {}
 
-        for i, result in enumerate(file_results):
-            if isinstance(result, BaseException):
-                file_name = file_paths[i] if i < len(file_paths) else f"file_{i}"
-                logger.warning(
-                    "per_file_review_failed",
-                    agent=self.ROLE,
-                    file=file_name,
-                    error=str(result),
-                )
-                continue
-
+        for result in file_results:
             if not isinstance(result, dict):
                 continue
 
