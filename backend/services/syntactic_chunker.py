@@ -226,7 +226,7 @@ class SyntacticChunker:
 
         # Extract function name
         name_node = node.child_by_field_name("name")
-        func_name = source[name_node.start_byte : name_node.end_byte] if name_node else None
+        func_name = name_node.text.decode("utf-8", errors="replace") if name_node else None
 
         # Extract the function source
         func_source = "\n".join(lines[start_line : end_line + 1])
@@ -332,7 +332,7 @@ class SyntacticChunker:
         end_line = node.end_point[0]
 
         name_node = node.child_by_field_name("name")
-        class_name = source[name_node.start_byte : name_node.end_byte] if name_node else None
+        class_name = name_node.text.decode("utf-8", errors="replace") if name_node else None
 
         # Find the class body
         body_node = node.child_by_field_name("body")
@@ -346,7 +346,7 @@ class SyntacticChunker:
                 if child.type in func_types:
                     m_name_node = child.child_by_field_name("name")
                     if m_name_node:
-                        m_name = source[m_name_node.start_byte : m_name_node.end_byte]
+                        m_name = m_name_node.text.decode("utf-8", errors="replace")
                         method_names.append(m_name)
                         method_ranges.append((child.start_point[0], child.end_point[0]))
 
@@ -516,7 +516,7 @@ class SyntacticChunker:
             if n.type in call_types:
                 func_node = n.child_by_field_name("function")
                 if func_node:
-                    name = source[func_node.start_byte : func_node.end_byte]
+                    name = func_node.text.decode("utf-8", errors="replace")
                     # Simplify: "self.method" → "method", "module.func" → "func"
                     clean_name = name.rsplit(".", 1)[-1].strip()
                     if clean_name and clean_name.replace("_", "").isalnum():
@@ -539,28 +539,28 @@ class SyntacticChunker:
                 if n.type in {"import_from_statement", "import_statement"}:
                     for child in n.children:
                         if child.type == "dotted_name":
-                            names.append(source[child.start_byte : child.end_byte])
+                            names.append(child.text.decode("utf-8", errors="replace"))
                             break
 
             elif language in {"javascript", "typescript", "tsx"}:
                 if n.type == "import_statement":
                     for child in n.children:
                         if child.type == "string":
-                            text = source[child.start_byte : child.end_byte].strip("\"'")
+                            text = child.text.decode("utf-8", errors="replace").strip("\"'")
                             names.append(text)
 
             elif language == "go":
                 if n.type == "import_spec":
                     for child in n.children:
                         if child.type == "interpreted_string_literal":
-                            text = source[child.start_byte : child.end_byte].strip('"')
+                            text = child.text.decode("utf-8", errors="replace").strip('"')
                             names.append(text)
 
             elif language == "rust":
                 if n.type == "use_declaration":
                     arg = n.child_by_field_name("argument")
                     if arg:
-                        names.append(source[arg.start_byte : arg.end_byte])
+                        names.append(arg.text.decode("utf-8", errors="replace"))
 
             for child in n.children:
                 walk(child)
