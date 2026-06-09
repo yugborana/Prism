@@ -355,11 +355,55 @@ class GitHubService:
             )
             return file_details
 
+    async def fetch_file_contents(
+        self,
+        repo_full_name: str,
+        file_paths: list[str],
+        commit_sha: str,
+    ) -> dict[str, str]:
+        """Fetch raw source code of files at a specific commit.
+
+        Uses the GitHub Contents API to retrieve full file content.
+        Returns a dict mapping file_path -> source code string.
+        """
+        import base64
+
+        headers = await self._get_headers()
+        client = get_httpx_client()
+        results: dict[str, str] = {}
+
+        for file_path in file_paths:
+            try:
+                url = f"{GITHUB_API}/repos/{repo_full_name}/contents/{file_path}"
+                response = await client.get(
+                    url,
+                    headers=headers,
+                    params={"ref": commit_sha},
+                    timeout=15,
+                )
+                if response.status_code != 200:
+                    continue
+
+                data = response.json()
+                content_b64 = data.get("content", "")
+                if content_b64:
+                    results[file_path] = base64.b64decode(content_b64).decode("utf-8", errors="replace")
+            except Exception as e:
+                logger.debug("file_content_fetch_failed", file=file_path, error=str(e))
+
+        logger.info(
+            "file_contents_fetched",
+            requested=len(file_paths),
+            fetched=len(results),
+        )
+        return results
+
     async def post_review(self, repo_full_name: str, pr_number: int, review_data: dict[str, Any]):
         """Post the final review to GitHub as a PR review.
 
-        Fetches the HEAD SHA first
-        so inline comments attach to the correct diff position.
+        Validates each inline comment against the actual diff to prevent
+        422 errors from GitHub. Comments targeting lines outside the diff
+        are moved to the summary comment instead of being lost.
         """
         with tracer.start_as_current_span(
             "prism.github.post_review",
@@ -385,45 +429,83 @@ class GitHubService:
                 logger.warning("head_sha_fetch_failed", pr=pr_number, error=str(e))
                 head_sha = ""
 
-            # 2. Build the review payload
+            # 2. Fetch the diff and validate inline comments against it
+            raw_comments = review_data.get("inline_comments", [])
+            comments: list[dict] = []
+            rejected_comments: list[dict] = []
+
+            if raw_comments:
+                try:
+                    diff_text = await self.fetch_pr_diff(repo_full_name, pr_number)
+                    from services.diff_parser import parse_diff_valid_lines, filter_valid_comments
+
+                    diff_info = parse_diff_valid_lines(diff_text)
+
+                    # Build comment dicts
+                    all_comments = []
+                    for c in raw_comments:
+                        all_comments.append(
+                            {
+                                "path": c["path"],
+                                "line": c["line"],
+                                "body": c["body"],
+                            }
+                        )
+
+                    comments, rejected_comments = filter_valid_comments(all_comments, diff_info)
+
+                    logger.info(
+                        "inline_comments_validated",
+                        total=len(all_comments),
+                        valid=len(comments),
+                        rejected=len(rejected_comments),
+                    )
+                except Exception as val_err:
+                    logger.warning("comment_validation_failed", error=str(val_err))
+                    # Fall back to sending all comments unvalidated
+                    comments = [{"path": c["path"], "line": c["line"], "body": c["body"]} for c in raw_comments]
+
+            # 3. Append rejected comments to the summary so they aren't lost
+            summary = review_data.get("summary_comment", "")
+            if rejected_comments:
+                summary += (
+                    "\n\n---\n\n<details>\n<summary>📌 Additional findings (could not be placed inline)</summary>\n\n"
+                )
+                for rc in rejected_comments:
+                    summary += f"**`{rc['path']}`** (line {rc['line']})\n{rc['body']}\n\n"
+                summary += "</details>"
+
+            # 4. Build the review payload
             url = f"{GITHUB_API}/repos/{repo_full_name}/pulls/{pr_number}/reviews"
 
-            comments = []
-            for c in review_data.get("inline_comments", []):
-                comment = {
-                    "path": c["path"],
-                    "line": c["line"],
-                    "body": c["body"],
-                }
-                comments.append(comment)
-
             payload: dict[str, Any] = {
-                "body": review_data.get("summary_comment", ""),
+                "body": summary,
                 "event": review_data.get("review_event", "COMMENT"),
                 "comments": comments,
             }
             if head_sha:
                 payload["commit_id"] = head_sha
 
-            # 3. Post the review
+            # 5. Post the review
             try:
                 response = await client.post(url, json=payload, headers=headers, timeout=30)
                 span.set_attribute("http.status_code", response.status_code)
 
                 if response.status_code == 422:
-                    # GitHub rejects reviews when inline comments target lines
-                    # outside the diff. Log the full response, then retry
-                    # without inline comments.
+                    # Even after validation, GitHub may still reject — retry without inline
                     logger.warning(
-                        "github_review_422_inline_comments",
+                        "github_review_422_after_validation",
                         repo=repo_full_name,
                         pr=pr_number,
                         response_body=response.text[:500],
                         comment_count=len(comments),
                     )
-                    # Retry without inline comments
+                    # Move all comments to summary
+                    for c in comments:
+                        summary += f"\n\n**`{c['path']}`** (line {c['line']})\n{c['body']}"
+
                     fallback_payload: dict[str, Any] = {
-                        "body": review_data.get("summary_comment", ""),
+                        "body": summary,
                         "event": review_data.get("review_event", "COMMENT"),
                         "comments": [],
                     }
@@ -448,7 +530,7 @@ class GitHubService:
                     comment_url = f"{GITHUB_API}/repos/{repo_full_name}/issues/{pr_number}/comments"
                     comment_resp = await client.post(
                         comment_url,
-                        json={"body": review_data.get("summary_comment", "")},
+                        json={"body": summary},
                         headers=headers,
                         timeout=30,
                     )
@@ -468,6 +550,8 @@ class GitHubService:
                     repo=repo_full_name,
                     pr=pr_number,
                     commit=head_sha[:8] if head_sha else "none",
+                    inline_count=len(comments),
+                    rejected_count=len(rejected_comments),
                 )
                 return response.json()
             except Exception as e:

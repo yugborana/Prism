@@ -101,11 +101,24 @@ class BaseReviewAgent(ABC):
             if state.static_analysis:
                 static_analysis_str = json.dumps(state.static_analysis, indent=2)
 
+            # Build annotated diff with clear line numbers
+            raw_diff = state.diff_data.get("full_diff", "")
+            try:
+                from services.diff_parser import build_annotated_diff
+
+                annotated_diff = build_annotated_diff(raw_diff)
+            except Exception:
+                annotated_diff = raw_diff  # Fallback to raw diff
+
+            # Build file context string
+            file_context = state.file_context or "(Full file context not available)"
+
             result = await chain.execute(
                 call_llm=self.call_llm,
-                diff=state.diff_data.get("full_diff", ""),
+                diff=annotated_diff,
                 context=state.comprehensive_context,
                 cross_file_context=state.cross_file_context,
+                file_context=file_context,
                 static_analysis=static_analysis_str or "(No static analysis results available)",
                 pr_title=state.pr_title,
                 changed_files=", ".join(state.changed_files),

@@ -195,6 +195,7 @@ async def github_webhook(
             "body": pr.get("body", ""),
             "installation_id": payload.get("installation", {}).get("id"),
             "base_branch": pr.get("base", {}).get("ref", "main"),
+            "head_sha": pr.get("head", {}).get("sha", ""),
             # Correlation ID for log + trace context across processes
             "correlation_id": correlation_id,
             # OTel trace context — allows the Celery worker span to become

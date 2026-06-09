@@ -172,10 +172,12 @@ class ReviewState(BaseModel):
     installation_id: int = 0
     changed_files: list[str] = Field(default_factory=list)
     diff_data: dict = Field(default_factory=dict)
+    head_sha: str = ""  # HEAD commit SHA for fetching file contents
 
     # Context (populated by ContextFetcher)
     comprehensive_context: str = ""
     cross_file_context: str = ""  # Cross-file callers/dependents from repo index
+    file_context: str = ""  # Full or compressed file source for accurate line references
     has_repo_index: bool = False  # Whether the repo has been indexed in Qdrant
     code_graphs: list[dict] = Field(default_factory=list)
     import_files: list[dict] = Field(default_factory=list)

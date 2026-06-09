@@ -103,6 +103,8 @@ class ReviewOrchestrator:
         self.state.pr_description = pr_data.get("body", "")
         self.state.repo_full_name = pr_data.get("repo_name", "")
         self.state.pr_number = pr_data.get("number", 0)
+        self.state.installation_id = pr_data.get("installation_id", 0)
+        self.state.head_sha = pr_data.get("head_sha", "")
         self.state.changed_files = pr_data.get("changed_files", [])
         self.state.diff_data = {"full_diff": pr_data.get("diff", "")}
         self.state.has_repo_index = pr_data.get("has_repo_index", False)
