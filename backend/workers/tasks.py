@@ -153,10 +153,20 @@ def process_pr_review(self, pr_data: dict[str, Any]):
             # The webhook endpoint enqueues immediately without fetching
             # (to stay within GitHub's 10s timeout). The /test-review
             # endpoint may pre-fill these fields for convenience.
-            if "diff" not in pr_data or "changed_files" not in pr_data:
+            if "diff" not in pr_data or "changed_files" not in pr_data or not pr_data.get("head_sha"):
                 gh = GitHubService(installation_id=pr_data.get("installation_id"))
                 repo_name = pr_data["repo_name"]
                 pr_number = pr_data["number"]
+
+                # Fetch head_sha from PR details if not provided
+                # (comment trigger path doesn't have it in the webhook payload)
+                if not pr_data.get("head_sha"):
+                    try:
+                        pr_details = _run_async(gh.fetch_pr_details(repo_name, pr_number))
+                        pr_data["head_sha"] = pr_details.get("head", {}).get("sha", "")
+                    except Exception as sha_err:
+                        logger.warning("head_sha_fetch_failed", error=str(sha_err))
+                        pr_data["head_sha"] = ""
 
                 if "diff" not in pr_data:
                     pr_data["diff"] = _run_async(gh.fetch_pr_diff(repo_name, pr_number))
@@ -167,6 +177,7 @@ def process_pr_review(self, pr_data: dict[str, Any]):
                     review_id=review_id,
                     diff_len=len(pr_data["diff"]),
                     files=len(pr_data["changed_files"]),
+                    has_head_sha=bool(pr_data.get("head_sha")),
                 )
 
             # ── Non-blocking repo index check (Cursor pattern) ──────────

@@ -324,6 +324,7 @@ async def test_review(request: Request, _=Depends(require_api_key)):
             "diff": diff,
             "installation_id": installation_id,
             "base_branch": pr_details.get("base", {}).get("ref", "main"),
+            "head_sha": pr_details.get("head", {}).get("sha", ""),
             "correlation_id": correlation_id,
             "trace_context": inject_trace_context(),
         }

@@ -76,8 +76,9 @@ def parse_diff_valid_lines(diff_text: str) -> dict[str, DiffFileInfo]:
             info.added_lines.add(current_line)
             current_line += 1
         elif raw_line.startswith("-"):
-            # Deleted line — does NOT increment the new-file line counter
-            # but is still a valid comment target (GitHub shows it in the diff)
+            # Deleted line — no new-file line number exists, so it cannot
+            # be targeted by inline comments using the `line` field.
+            # (Would need `side: "LEFT"` + `original_line` for multi-line API)
             pass
         elif raw_line.startswith(" "):
             # Context line — valid for comments
