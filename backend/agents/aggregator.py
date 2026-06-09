@@ -38,21 +38,25 @@ async def aggregator_agent(state: ReviewState) -> dict[str, Any]:
         if state.security_agent_status == AgentStatus.FAILED:
             failed_agents.append("Security")
         elif state.security_report:
+            state.security_report.findings = _deduplicate_findings(state.security_report.findings)
             all_findings.extend(state.security_report.findings)
 
         if state.quality_agent_status == AgentStatus.FAILED:
             failed_agents.append("Quality")
         elif state.quality_report:
+            state.quality_report.findings = _deduplicate_findings(state.quality_report.findings)
             all_findings.extend(state.quality_report.findings)
 
         if state.performance_agent_status == AgentStatus.FAILED:
             failed_agents.append("Performance")
         elif state.performance_report:
+            state.performance_report.findings = _deduplicate_findings(state.performance_report.findings)
             all_findings.extend(state.performance_report.findings)
 
         if state.observability_agent_status == AgentStatus.FAILED:
             failed_agents.append("Observability")
         elif state.observability_report:
+            state.observability_report.findings = _deduplicate_findings(state.observability_report.findings)
             all_findings.extend(state.observability_report.findings)
 
         # Count by severity — normalize to enum to handle mixed types
@@ -121,6 +125,46 @@ async def aggregator_agent(state: ReviewState) -> dict[str, Any]:
 
 
 # ── Formatting Helpers ───────────────────────────────────────────────────────
+
+
+def _deduplicate_findings(findings: list[CodeFinding]) -> list[CodeFinding]:
+    """
+    Remove identical findings occurring on the same file and line.
+    Picks the one with the highest severity if multiple exist for the same line.
+    """
+    grouped: dict[tuple[str, int], list[CodeFinding]] = {}
+    general_findings = []
+
+    for f in findings:
+        if f.line_number is None or f.line_number <= 0:
+            general_findings.append(f)
+            continue
+
+        key = (f.file_path, f.line_number)
+        if key not in grouped:
+            grouped[key] = []
+
+        # Prevent duplicates
+        if not any(existing.description.strip().lower() == f.description.strip().lower() for existing in grouped[key]):
+            grouped[key].append(f)
+
+    severity_rank = {
+        "CRITICAL": 1,
+        "HIGH": 2,
+        "MEDIUM": 3,
+        "LOW": 4,
+        "INFO": 5,
+    }
+
+    deduped = list(general_findings)
+    for (path, line), line_findings in grouped.items():
+        # Sort findings by severity (most severe first)
+        line_findings.sort(
+            key=lambda f: severity_rank.get(f.severity.value if hasattr(f.severity, "value") else str(f.severity), 99)
+        )
+        deduped.append(line_findings[0])
+
+    return deduped
 
 
 def _build_inline_comments(findings: list[CodeFinding]) -> list[InlineComment]:
