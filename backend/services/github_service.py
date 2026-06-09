@@ -395,8 +395,6 @@ class GitHubService:
                     "line": c["line"],
                     "body": c["body"],
                 }
-                if head_sha:
-                    comment["commit_id"] = head_sha
                 comments.append(comment)
 
             payload: dict[str, Any] = {
