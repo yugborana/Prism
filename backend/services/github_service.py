@@ -411,6 +411,59 @@ class GitHubService:
             try:
                 response = await client.post(url, json=payload, headers=headers, timeout=30)
                 span.set_attribute("http.status_code", response.status_code)
+
+                if response.status_code == 422:
+                    # GitHub rejects reviews when inline comments target lines
+                    # outside the diff. Log the full response, then retry
+                    # without inline comments.
+                    logger.warning(
+                        "github_review_422_inline_comments",
+                        repo=repo_full_name,
+                        pr=pr_number,
+                        response_body=response.text[:500],
+                        comment_count=len(comments),
+                    )
+                    # Retry without inline comments
+                    fallback_payload: dict[str, Any] = {
+                        "body": review_data.get("summary_comment", ""),
+                        "event": review_data.get("review_event", "COMMENT"),
+                        "comments": [],
+                    }
+                    if head_sha:
+                        fallback_payload["commit_id"] = head_sha
+
+                    fallback_resp = await client.post(url, json=fallback_payload, headers=headers, timeout=30)
+                    if fallback_resp.status_code < 300:
+                        logger.info(
+                            "github_review_posted_without_inline",
+                            repo=repo_full_name,
+                            pr=pr_number,
+                        )
+                        return fallback_resp.json()
+
+                    # If even the fallback fails, post as a plain issue comment
+                    logger.warning(
+                        "github_review_fallback_failed",
+                        status=fallback_resp.status_code,
+                        body=fallback_resp.text[:300],
+                    )
+                    comment_url = f"{GITHUB_API}/repos/{repo_full_name}/issues/{pr_number}/comments"
+                    comment_resp = await client.post(
+                        comment_url,
+                        json={"body": review_data.get("summary_comment", "")},
+                        headers=headers,
+                        timeout=30,
+                    )
+                    if comment_resp.status_code < 300:
+                        logger.info("github_review_posted_as_comment", pr=pr_number)
+                        return comment_resp.json()
+                    logger.error(
+                        "github_review_all_fallbacks_failed",
+                        pr=pr_number,
+                        status=comment_resp.status_code,
+                    )
+                    return None
+
                 response.raise_for_status()
                 logger.info(
                     "github_review_posted",
