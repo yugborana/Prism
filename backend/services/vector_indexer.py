@@ -260,6 +260,32 @@ class VectorIndexer:
 
         await asyncio.to_thread(self._client.upsert, collection_name="import_files", points=[point])
 
+    @staticmethod
+    async def delete_pr_points(repo_name: str, pr_number: int) -> bool:
+        """Delete all PR-scoped points from code_graphs and import_files."""
+        import asyncio
+        from qdrant_client.models import FieldCondition, Filter, FilterSelector, MatchValue
+
+        client = get_qdrant_client()
+        flt = Filter(
+            must=[
+                FieldCondition(key="repo_name", match=MatchValue(value=repo_name)),
+                FieldCondition(key="pr_number", match=MatchValue(value=pr_number)),
+            ]
+        )
+        ok = True
+        for collection in ("code_graphs", "import_files"):
+            try:
+                await asyncio.to_thread(
+                    client.delete,
+                    collection_name=collection,
+                    points_selector=FilterSelector(filter=flt),
+                )
+            except Exception as e:
+                ok = False
+                logger.warning("pr_points_delete_failed", collection=collection, error=str(e))
+        return ok
+
     async def _embed_text(self, text: str) -> list[float] | None:
         """Generate embedding using the shared LLMClient."""
         try:

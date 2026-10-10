@@ -70,3 +70,7 @@ Thumbs.db
 .ruff_cache/
 .pytest_cache/
 .mypy_cache/
+
+/px0-master
+backend/eval/martian_bench/data
+backend/eval/cache

@@ -1,0 +1,23 @@
+# docker-compose.eval.yml
+# Lightweight infra for eval runs — Qdrant + Redis only (no Postgres needed)
+#
+# Usage:
+#   docker compose -f docker-compose.eval.yml up -d
+#   python -m eval.harness --limit 5
+#   docker compose -f docker-compose.eval.yml down -v
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --save "" --appendonly no
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    tmpfs:
+      - /qdrant/storage

@@ -22,15 +22,8 @@ logger = get_logger(__name__)
 _embedding_model = None
 
 
-def _get_embedding_model():
-    global _embedding_model
-    if _embedding_model is None:
-        # Lazy load to avoid memory overhead on startup
-        from sentence_transformers import SentenceTransformer
-
-        logger.info("loading_sentence_transformers_model", model=settings.embedding_model)
-        _embedding_model = SentenceTransformer(settings.embedding_model)
-    return _embedding_model
+# No longer using sentence-transformers (saves ~2GB of RAM).
+# Embeddings are now generated via the lightweight ONNX model in services.embeddings.
 
 
 class LLMClient:
@@ -105,34 +98,24 @@ class LLMClient:
 
     async def embed(self, text: str) -> list[float]:
         """
-        Generate an embedding vector for the given text using sentence-transformers locally.
+        Generate an embedding vector for the given text using the lightweight ONNX model.
         """
         if not text or not text.strip():
             return [0.0] * settings.embedding_dim
 
         try:
-            global _embedding_model
-            if _embedding_model is None:
-                # First load involves disk I/O and heavy parsing — do not block event loop
-                model = await asyncio.to_thread(_get_embedding_model)
-            else:
-                model = _embedding_model
-
+            from services.embeddings import embed_query
+            
             # encode is synchronous, run it in a thread pool
-            embedding = await asyncio.to_thread(model.encode, text)
-            return embedding.tolist()
+            embedding_arr = await asyncio.to_thread(embed_query, text)
+            return embedding_arr.tolist()
         except Exception as e:
             logger.error("embedding_failed", error=str(e))
             # Return zero vector as fallback — prevents crashes during indexing
             return [0.0] * settings.embedding_dim
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Embed multiple texts using native batch encoding in a single thread.
-
-        SentenceTransformer.encode() supports list input for vectorized
-        batch computation — significantly faster and more memory-efficient
-        than spawning N separate threads (critical on t2.micro).
-        """
+        """Embed multiple texts using native batch encoding in a single thread."""
         if not texts:
             return []
 
@@ -143,24 +126,25 @@ class LLMClient:
             return [[0.0] * settings.embedding_dim for _ in texts]
 
         try:
-            global _embedding_model
-            if _embedding_model is None:
-                await asyncio.to_thread(_get_embedding_model)
-            model = _embedding_model
-            assert model is not None, "Embedding model failed to load"
-
-            batch_texts = [t for _, t in non_empty]
-            # Single thread, single batched call — uses vectorized ops internally
-            embeddings = await asyncio.to_thread(model.encode, batch_texts)
-
-            # Reassemble: fill zero vectors for blank inputs
-            result: list[list[float]] = [[0.0] * settings.embedding_dim for _ in range(len(texts))]
-            for idx, (orig_pos, _) in enumerate(non_empty):
-                result[orig_pos] = embeddings[idx].tolist()
-            return result
+            from services.embeddings import embed_texts
+            
+            valid_texts = [t for _, t in non_empty]
+            
+            # encode is synchronous, run it in a thread pool
+            embeddings_arr = await asyncio.to_thread(embed_texts, valid_texts)
+            embeddings_list = embeddings_arr.tolist()
+            
+            # Reassemble with empty vectors in their original positions
+            final_embeddings = [[0.0] * settings.embedding_dim for _ in texts]
+            for (orig_idx, _), emb in zip(non_empty, embeddings_list):
+                final_embeddings[orig_idx] = emb
+                
+            return final_embeddings
         except Exception as e:
-            logger.error("batch_embedding_failed", error=str(e), count=len(texts))
+            logger.error("batch_embedding_failed", error=str(e))
             return [[0.0] * settings.embedding_dim for _ in texts]
+
+
 
     # ── Info ──────────────────────────────────────────────────────────────
 
