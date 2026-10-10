@@ -31,7 +31,7 @@ dependencies = [
 
     # ── LLM Providers & Embeddings ────────────────────────────────────
     "litellm>=1.20.0",                     # LLM generation abstraction
-    "sentence-transformers>=2.3.0",        # Local embeddings (all-MiniLM-L6-v2)
+    "chromadb>=0.4.0",                     # Local ONNX embeddings (all-MiniLM-L6-v2)
 
     # ── Vector Database ───────────────────────────────────────────────
     "qdrant-client>=1.15.1",

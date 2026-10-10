@@ -39,7 +39,7 @@ class LLMClient:
         elif self.provider == "gemini":
             self.model = "gemini/gemini-2.0-flash"
         elif self.provider == "openai":
-            self.model = "gpt-4o-mini"
+            self.model = "openai/gpt-oss-120b"
         elif self.provider == "anthropic":
             self.model = "claude-3-haiku-20240307"
         elif self.provider == "bedrock":
@@ -47,7 +47,7 @@ class LLMClient:
             # Best price/performance for code review on Bedrock
             self.model = "bedrock/anthropic.claude-3-5-haiku-20241022-v1:0"
         else:
-            self.model = "groq/llama-3.3-70b-versatile"  # fallback default
+            self.model = "openai/gpt-oss-120b"  # fallback default
 
     # ── Text Generation ───────────────────────────────────────────────────
 
