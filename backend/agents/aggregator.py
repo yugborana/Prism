@@ -35,29 +35,59 @@ async def aggregator_agent(state: ReviewState) -> dict[str, Any]:
         all_findings: list[CodeFinding] = []
         failed_agents: list[str] = []
 
+        def _get_findings(report) -> list[CodeFinding]:
+            if not report: return []
+            f_list = report.get("findings", []) if isinstance(report, dict) else getattr(report, "findings", [])
+            
+            # Convert raw dictionaries to CodeFinding objects for safe attribute access
+            parsed = []
+            for item in f_list:
+                if isinstance(item, dict):
+                    # Handle enum conversion errors gracefully by defaulting to INFO
+                    if "severity" in item and isinstance(item["severity"], str):
+                        item["severity"] = item["severity"].upper()
+                        if item["severity"] not in [s.value for s in Severity]:
+                            item["severity"] = "INFO"
+                    try:
+                        parsed.append(CodeFinding(**item))
+                    except Exception:
+                        pass
+                else:
+                    parsed.append(item)
+            return parsed
+            
+        def _set_findings(report, f_list):
+            if not report: return
+            if isinstance(report, dict): report["findings"] = f_list
+            else: report.findings = f_list
+
         if state.security_agent_status == AgentStatus.FAILED:
             failed_agents.append("Security")
         elif state.security_report:
-            state.security_report.findings = _deduplicate_findings(state.security_report.findings)
-            all_findings.extend(state.security_report.findings)
+            f = _deduplicate_findings(_get_findings(state.security_report))
+            _set_findings(state.security_report, f)
+            all_findings.extend(f)
 
         if state.quality_agent_status == AgentStatus.FAILED:
             failed_agents.append("Quality")
         elif state.quality_report:
-            state.quality_report.findings = _deduplicate_findings(state.quality_report.findings)
-            all_findings.extend(state.quality_report.findings)
+            f = _deduplicate_findings(_get_findings(state.quality_report))
+            _set_findings(state.quality_report, f)
+            all_findings.extend(f)
 
         if state.performance_agent_status == AgentStatus.FAILED:
             failed_agents.append("Performance")
         elif state.performance_report:
-            state.performance_report.findings = _deduplicate_findings(state.performance_report.findings)
-            all_findings.extend(state.performance_report.findings)
+            f = _deduplicate_findings(_get_findings(state.performance_report))
+            _set_findings(state.performance_report, f)
+            all_findings.extend(f)
 
         if state.observability_agent_status == AgentStatus.FAILED:
             failed_agents.append("Observability")
         elif state.observability_report:
-            state.observability_report.findings = _deduplicate_findings(state.observability_report.findings)
-            all_findings.extend(state.observability_report.findings)
+            f = _deduplicate_findings(_get_findings(state.observability_report))
+            _set_findings(state.observability_report, f)
+            all_findings.extend(f)
 
         # Count by severity — normalize to enum to handle mixed types
         # (Pydantic models use Severity enum, raw dicts may use strings)
@@ -227,6 +257,14 @@ def _build_summary(
     failed_agents: list[str],
 ) -> str:
     """Build the main PR review comment with collapsible sections."""
+    def _safe_get(obj, key, default=""):
+        if not obj: return default
+        val = obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+        return val if val is not None else default
+
+    def _safe_enum(val):
+        return val.value if hasattr(val, "value") else str(val)
+
     parts: list[str] = []
     parts.append("## 🔮 Prism Code Review\n")
 
@@ -243,47 +281,55 @@ def _build_summary(
     parts.append(f"Found **{total}** issue{'s' if total != 1 else ''} across the changed files.\n")
 
     # Security section
-    if security_report and security_report.findings:
+    sec_findings = _safe_get(security_report, "findings", [])
+    if security_report and sec_findings:
         parts.append("<details>")
-        parts.append(f"<summary><strong>🔒 Security ({len(security_report.findings)} issues)</strong></summary>\n")
-        parts.append(f"**Risk Level:** {security_report.risk_level.value}\n")
-        parts.append(security_report.summary + "\n")
-        parts.append(_format_findings_section(security_report.findings))
+        parts.append(f"<summary><strong>🔒 Security ({len(sec_findings)} issues)</strong></summary>\n")
+        parts.append(f"**Risk Level:** {_safe_enum(_safe_get(security_report, 'risk_level'))}\n")
+        parts.append(str(_safe_get(security_report, "summary")) + "\n")
+        parts.append(_format_findings_section(sec_findings))
         parts.append("\n</details>\n")
 
     # Quality section
-    if quality_report and quality_report.findings:
+    qual_findings = _safe_get(quality_report, "findings", [])
+    if quality_report and qual_findings:
         parts.append("<details>")
-        parts.append(f"<summary><strong>🔍 Code Quality ({len(quality_report.findings)} issues)</strong></summary>\n")
-        parts.append(f"**Maintainability Score:** {quality_report.maintainability_score}/10\n")
-        parts.append(quality_report.summary + "\n")
-        parts.append(_format_findings_section(quality_report.findings))
+        parts.append(f"<summary><strong>🔍 Code Quality ({len(qual_findings)} issues)</strong></summary>\n")
+        parts.append(f"**Maintainability Score:** {_safe_get(quality_report, 'maintainability_score')}/10\n")
+        parts.append(str(_safe_get(quality_report, "summary")) + "\n")
+        parts.append(_format_findings_section(qual_findings))
         parts.append("\n</details>\n")
 
     # Performance section
-    if performance_report and performance_report.findings:
+    perf_findings = _safe_get(performance_report, "findings", [])
+    if performance_report and perf_findings:
         parts.append("<details>")
         parts.append(
-            f"<summary><strong>⚡ Performance ({len(performance_report.findings)} issues)</strong></summary>\n"
+            f"<summary><strong>⚡ Performance ({len(perf_findings)} issues)</strong></summary>\n"
         )
-        parts.append(f"**Impact:** {performance_report.estimated_impact.value}\n")
-        parts.append(performance_report.summary + "\n")
-        parts.append(_format_findings_section(performance_report.findings))
+        parts.append(f"**Impact:** {_safe_enum(_safe_get(performance_report, 'estimated_impact'))}\n")
+        parts.append(str(_safe_get(performance_report, "summary")) + "\n")
+        parts.append(_format_findings_section(perf_findings))
         parts.append("\n</details>\n")
 
     # Observability section
-    if observability_report and observability_report.findings:
+    obs_findings = _safe_get(observability_report, "findings", [])
+    if observability_report and obs_findings:
         parts.append("<details>")
         parts.append(
-            f"<summary><strong>📡 Observability ({len(observability_report.findings)} issues)</strong></summary>\n"
+            f"<summary><strong>📡 Observability ({len(obs_findings)} issues)</strong></summary>\n"
         )
-        parts.append(f"**Instrumentation Score:** {observability_report.instrumentation_score}/10\n")
-        coverage = observability_report.telemetry_coverage
+        parts.append(f"**Instrumentation Score:** {_safe_get(observability_report, 'instrumentation_score')}/10\n")
+        coverage = _safe_get(observability_report, "telemetry_coverage", {})
+        spans = _safe_get(coverage, "spans", "N/A")
+        logging = _safe_get(coverage, "logging", "N/A")
+        metrics = _safe_get(coverage, "metrics", "N/A")
+        events = _safe_get(coverage, "events", "N/A")
         parts.append(
-            f"**Coverage:** Spans: {coverage.spans} | Logging: {coverage.logging} | Metrics: {coverage.metrics} | Events: {coverage.events}\n"
+            f"**Coverage:** Spans: {spans} | Logging: {logging} | Metrics: {metrics} | Events: {events}\n"
         )
-        parts.append(observability_report.summary + "\n")
-        parts.append(_format_findings_section(observability_report.findings))
+        parts.append(str(_safe_get(observability_report, "summary")) + "\n")
+        parts.append(_format_findings_section(obs_findings))
         parts.append("\n</details>\n")
 
     parts.append("---\n*Generated by Prism AI Code Reviewer*")

@@ -12,9 +12,16 @@ Usage:
 """
 
 import asyncio
+import os
+
+from dotenv import load_dotenv
 
 from observability.logging import get_logger
 from utils.config import settings
+
+# Load .env into os.environ so LiteLLM sees API keys.
+# override=False ensures we don't clobber production environment variables if deployed.
+load_dotenv()
 
 logger = get_logger(__name__)
 
@@ -39,15 +46,15 @@ class LLMClient:
         elif self.provider == "gemini":
             self.model = "gemini/gemini-2.0-flash"
         elif self.provider == "openai":
-            self.model = "openai/gpt-oss-120b"
+            self.model = "groq/openai/gpt-oss-120b"
         elif self.provider == "anthropic":
             self.model = "claude-3-haiku-20240307"
         elif self.provider == "bedrock":
-            # Claude 3.5 Haiku: 200K context, $0.25/M input, $1.25/M output
-            # Best price/performance for code review on Bedrock
             self.model = "bedrock/anthropic.claude-3-5-haiku-20241022-v1:0"
+        elif self.provider == "openrouter":
+            self.model = settings.llm_model if hasattr(settings, "llm_model") and settings.llm_model else "anthropic/claude-3-haiku-20240307"
         else:
-            self.model = "openai/gpt-oss-120b"  # fallback default
+            self.model = getattr(settings, "llm_model", "anthropic/claude-3-haiku-20240307")
 
     # ── Text Generation ───────────────────────────────────────────────────
 
@@ -72,20 +79,57 @@ class LLMClient:
 
         with track_llm_call(agent="LLMClient", model=self.model) as tracker:
             try:
-                response = await litellm.acompletion(
-                    model=self.model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-
-                if hasattr(response, "usage") and response.usage:
-                    tracker.record_tokens(
-                        input_tokens=response.usage.prompt_tokens,
-                        output_tokens=response.usage.completion_tokens,
-                    )
-
-                return response.choices[0].message.content
+                if self.provider == "openrouter" or self.model.startswith("openrouter/") or "openrouter" in self.model:
+                    import httpx
+                    import json
+                    api_key = os.environ.get("OPENROUTER_API_KEY", "")
+                    
+                    # Strip 'openrouter/' prefix if it exists in the model string
+                    model_id = self.model.replace("openrouter/", "") if self.model.startswith("openrouter/") else self.model
+                    
+                    payload = {
+                        "model": model_id,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "reasoning": {"enabled": True}
+                    }
+                    async with httpx.AsyncClient() as client:
+                        resp = await client.post(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json=payload,
+                            timeout=180.0
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        content = data["choices"][0]["message"]["content"]
+                        
+                        usage = data.get("usage", {})
+                        if usage:
+                            tracker.record_tokens(
+                                input_tokens=usage.get("prompt_tokens", 0),
+                                output_tokens=usage.get("completion_tokens", 0),
+                            )
+                        return content
+                else:
+                    kwargs = {
+                        "model": self.model,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                    }
+                    response = await litellm.acompletion(**kwargs)
+                    
+                    if hasattr(response, "usage") and response.usage:
+                        tracker.record_tokens(
+                            input_tokens=response.usage.prompt_tokens,
+                            output_tokens=response.usage.completion_tokens,
+                        )
+                    return response.choices[0].message.content
             except Exception as e:
                 logger.error(
                     "llm_generation_failed",

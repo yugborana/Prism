@@ -273,7 +273,11 @@ class BaseReviewAgent(ABC):
         # Build merged result
         merged = dict(template)
         merged["findings"] = merged_findings
-        merged["summary"] = " | ".join(summaries) if summaries else "No findings."
+        
+        joined_summary = " | ".join(summaries) if summaries else "No findings."
+        if len(joined_summary) > 990:
+            joined_summary = joined_summary[:990] + "..."
+        merged["summary"] = joined_summary
 
         return merged
 

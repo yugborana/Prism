@@ -74,3 +74,4 @@ Thumbs.db
 /px0-master
 backend/eval/martian_bench/data
 backend/eval/cache
+backend/eval/results
